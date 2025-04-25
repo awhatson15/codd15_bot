@@ -55,6 +55,9 @@ def get_notification_interval_keyboard() -> InlineKeyboardMarkup:
     for i in range(0, len(buttons), 3):
         keyboard.row(*buttons[i:i + 3])
     
+    # Добавляем кнопку "Назад"
+    keyboard.add(InlineKeyboardButton("◀️ Назад", callback_data="interval_back"))
+    
     return keyboard
 
 
@@ -69,5 +72,8 @@ def get_notification_threshold_keyboard() -> InlineKeyboardMarkup:
     # Добавляем кнопки по 3 в ряд
     for i in range(0, len(buttons), 3):
         keyboard.row(*buttons[i:i + 3])
+    
+    # Добавляем кнопку "Назад"
+    keyboard.add(InlineKeyboardButton("◀️ Назад", callback_data="threshold_back"))
     
     return keyboard 

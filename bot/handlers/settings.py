@@ -484,6 +484,60 @@ async def back_to_main_callback(callback_query: types.CallbackQuery):
     )
 
 
+async def interval_back_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик кнопки 'Назад' в настройке интервала."""
+    await callback_query.answer()
+    
+    # Сбрасываем состояние
+    await state.finish()
+    
+    # Получаем текущие настройки
+    settings = await get_notification_settings(callback_query.from_user.id)
+    
+    # Возвращаемся в основное меню настроек
+    await safe_edit_message(
+        callback_query.message,
+        f"⚙️ *Настройки уведомлений*\n\n"
+        f"Текущие настройки:\n"
+        f"- Интервальный режим: {'✅' if settings['interval_mode'] else '❌'}\n"
+        f"- Интервал: {settings['interval_minutes']} мин.\n"
+        f"- При изменении позиции: {'✅' if settings['position_change'] else '❌'}\n"
+        f"- При сдвиге очереди: {'✅' if settings['threshold_change'] else '❌'}\n"
+        f"- Порог сдвига: {settings['threshold_value']} позиций\n"
+        f"- Уведомления: {'✅ Включены' if settings['enabled'] else '❌ Выключены'}\n\n"
+        f"Выберите, что хотите изменить:",
+        parse_mode="Markdown",
+        reply_markup=get_notification_settings_keyboard(settings)
+    )
+
+
+async def threshold_back_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик кнопки 'Назад' в настройке порога."""
+    await callback_query.answer()
+    
+    # Сбрасываем состояние
+    await state.finish()
+    
+    # Получаем текущие настройки
+    settings = await get_notification_settings(callback_query.from_user.id)
+    
+    # Возвращаемся в основное меню настроек
+    await safe_edit_message(
+        callback_query.message,
+        f"⚙️ *Настройки уведомлений*\n\n"
+        f"Текущие настройки:\n"
+        f"- Интервальный режим: {'✅' if settings['interval_mode'] else '❌'}\n"
+        f"- Интервал: {settings['interval_minutes']} мин.\n"
+        f"- При изменении позиции: {'✅' if settings['position_change'] else '❌'}\n"
+        f"- При сдвиге очереди: {'✅' if settings['threshold_change'] else '❌'}\n"
+        f"- Порог сдвига: {settings['threshold_value']} позиций\n"
+        f"- Уведомления: {'✅ Включены' if settings['enabled'] else '❌ Выключены'}\n\n"
+        f"Выберите, что хотите изменить:",
+        parse_mode="Markdown",
+        reply_markup=get_notification_settings_keyboard(settings)
+    )
+
+
 def register_settings_handlers(dp: Dispatcher):
     """Регистрация обработчиков для настроек уведомлений."""
     dp.register_message_handler(cmd_settings, commands=["settings"])
@@ -507,5 +561,17 @@ def register_settings_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(
         threshold_callback, 
         lambda c: c.data.startswith("threshold_"), 
+        state=NotificationState.waiting_for_threshold
+    )
+    
+    # Обработчики кнопок "Назад"
+    dp.register_callback_query_handler(
+        interval_back_callback, 
+        lambda c: c.data == "interval_back", 
+        state=NotificationState.waiting_for_interval
+    )
+    dp.register_callback_query_handler(
+        threshold_back_callback, 
+        lambda c: c.data == "threshold_back", 
         state=NotificationState.waiting_for_threshold
     ) 
