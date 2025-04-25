@@ -440,6 +440,9 @@ async def start_parser():
     
     logger.info("Парсер запущен")
     
+    # Нормализуем существующие номера автомобилей в базе данных
+    await normalize_existing_car_numbers(logger)
+    
     while True:
         try:
             # Парсинг данных о всех автомобилях
@@ -458,6 +461,89 @@ async def start_parser():
         
         # Пауза перед следующим запросом
         await asyncio.sleep(config.parser_interval)
+
+
+async def normalize_existing_car_numbers(logger):
+    """Нормализует номера автомобилей в существующих записях базы данных."""
+    try:
+        config = load_config()
+        import aiosqlite
+        from bot.models.database import _normalize_car_number
+        
+        async with aiosqlite.connect(config.database_path) as db:
+            # Получаем все записи из таблицы queue_data
+            async with db.execute('SELECT car_number FROM queue_data') as cursor:
+                car_records = await cursor.fetchall()
+            
+            if not car_records:
+                logger.info("Нет записей для нормализации номеров автомобилей в таблице queue_data")
+            else:
+                logger.info(f"Начинаем нормализацию {len(car_records)} номеров автомобилей в таблице queue_data")
+                normalized_count = 0
+                
+                for record in car_records:
+                    car_number = record[0]
+                    normalized_number = _normalize_car_number(car_number)
+                    
+                    if car_number != normalized_number:
+                        # Проверяем, существует ли уже запись с нормализованным номером
+                        async with db.execute(
+                            'SELECT 1 FROM queue_data WHERE car_number = ?', 
+                            (normalized_number,)
+                        ) as cursor:
+                            exists = await cursor.fetchone()
+                        
+                        if exists:
+                            # Если существует, удаляем ненормализованную запись
+                            await db.execute(
+                                'DELETE FROM queue_data WHERE car_number = ?', 
+                                (car_number,)
+                            )
+                        else:
+                            # Если не существует, обновляем текущую запись
+                            await db.execute(
+                                'UPDATE queue_data SET car_number = ? WHERE car_number = ?',
+                                (normalized_number, car_number)
+                            )
+                        
+                        # Обновляем также записи в таблице истории
+                        await db.execute(
+                            'UPDATE queue_history SET car_number = ? WHERE car_number = ?',
+                            (normalized_number, car_number)
+                        )
+                        
+                        normalized_count += 1
+                
+                logger.info(f"Нормализовано {normalized_count} номеров автомобилей в таблице queue_data")
+            
+            # Теперь нормализуем номера автомобилей в таблице пользователей
+            async with db.execute('SELECT user_id, car_number FROM users WHERE car_number IS NOT NULL') as cursor:
+                user_records = await cursor.fetchall()
+            
+            if not user_records:
+                logger.info("Нет записей для нормализации номеров автомобилей в таблице пользователей")
+            else:
+                logger.info(f"Начинаем нормализацию номеров автомобилей для {len(user_records)} пользователей")
+                normalized_user_count = 0
+                
+                for user_id, car_number in user_records:
+                    if car_number:
+                        normalized_number = _normalize_car_number(car_number)
+                        
+                        if car_number != normalized_number:
+                            await db.execute(
+                                'UPDATE users SET car_number = ? WHERE user_id = ?',
+                                (normalized_number, user_id)
+                            )
+                            normalized_user_count += 1
+                
+                logger.info(f"Нормализовано {normalized_user_count} номеров автомобилей в таблице пользователей")
+            
+            await db.commit()
+    
+    except Exception as e:
+        logger.error(f"Ошибка при нормализации номеров автомобилей: {e}")
+        logger.exception("Стек ошибки:")
 
 
 if __name__ == "__main__":

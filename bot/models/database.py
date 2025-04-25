@@ -92,10 +92,13 @@ async def update_car_number(user_id: int, car_number: str) -> bool:
     config = load_config()
     
     try:
+        # Нормализуем номер автомобиля
+        normalized_car_number = _normalize_car_number(car_number)
+        
         async with aiosqlite.connect(config.database_path) as db:
             await db.execute(
                 'UPDATE users SET car_number = ? WHERE user_id = ?',
-                (car_number, user_id)
+                (normalized_car_number, user_id)
             )
             await db.commit()
         return True
@@ -220,10 +223,13 @@ async def update_queue_data(car_data: Dict[str, Dict]) -> bool:
     try:
         async with aiosqlite.connect(config.database_path) as db:
             for car_number, data in car_data.items():
+                # Нормализуем номер автомобиля для сохранения в базу
+                normalized_car_number = _normalize_car_number(car_number)
+                
                 # Проверяем, есть ли изменения в очереди
                 async with db.execute(
                     'SELECT queue_position FROM queue_data WHERE car_number = ?',
-                    (car_number,)
+                    (normalized_car_number,)
                 ) as cursor:
                     result = await cursor.fetchone()
                     old_position = result[0] if result else None
@@ -233,14 +239,14 @@ async def update_queue_data(car_data: Dict[str, Dict]) -> bool:
                     '''INSERT OR REPLACE INTO queue_data 
                        (car_number, model, queue_position, registration_date, last_updated) 
                        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)''',
-                    (car_number, data['model'], data['queue_position'], data['registration_date'])
+                    (normalized_car_number, data['model'], data['queue_position'], data['registration_date'])
                 )
                 
                 # Сохраняем историю изменений позиции, если она изменилась
                 if old_position is None or old_position != data['queue_position']:
                     await db.execute(
                         'INSERT INTO queue_history (car_number, queue_position) VALUES (?, ?)',
-                        (car_number, data['queue_position'])
+                        (normalized_car_number, data['queue_position'])
                     )
             
             await db.commit()
@@ -255,11 +261,14 @@ async def get_car_data(car_number: str) -> Optional[Dict]:
     config = load_config()
     
     try:
+        # Нормализуем номер автомобиля для поиска
+        normalized_car_number = _normalize_car_number(car_number)
+        
         async with aiosqlite.connect(config.database_path) as db:
             async with db.execute(
                 '''SELECT model, queue_position, registration_date 
                    FROM queue_data WHERE car_number = ?''',
-                (car_number,)
+                (normalized_car_number,)
             ) as cursor:
                 result = await cursor.fetchone()
                 
@@ -275,6 +284,13 @@ async def get_car_data(car_number: str) -> Optional[Dict]:
     except Exception as e:
         print(f"Error getting car data: {e}")
         return None
+
+
+def _normalize_car_number(car_number: str) -> str:
+    """Нормализация номера автомобиля для корректного сравнения."""
+    # Удаляем все пробелы и переводим в верхний регистр
+    normalized = car_number.strip().upper().replace(' ', '')
+    return normalized
 
 
 async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
