@@ -1,0 +1,27 @@
+services:
+  bot:
+    build: ./bot
+    restart: always
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    depends_on:
+      - parser
+    networks:
+      - codd_network
+
+  parser:
+    build: ./parser
+    restart: always
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    networks:
+      - codd_network
+
+networks:
+  codd_network:
+    driver: bridge
+    
