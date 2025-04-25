@@ -24,7 +24,7 @@ async def set_commands(bot: Bot):
     ]
     await bot.set_my_commands(commands)
 
-async def on_startup(dp):
+async def on_startup(dp, bot):
     # Инициализация базы данных
     await init_db()
     
@@ -50,7 +50,7 @@ async def main():
     
     # Запуск бота
     try:
-        await on_startup(dp)
+        await on_startup(dp, bot)
         await dp.start_polling()
     finally:
         await dp.storage.close()

@@ -4,6 +4,7 @@ services:
     restart: always
     volumes:
       - ./data:/app/data
+      - ./bot:/app
     env_file:
       - .env
     depends_on:
