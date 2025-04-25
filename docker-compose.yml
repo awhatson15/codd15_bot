@@ -1,28 +1,28 @@
 services:
   bot:
-    build: ./bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codd_queue_bot
     restart: always
     volumes:
-      - ./data:/app/data
-      - ./bot:/app
+      - ./bot:/app/bot
+      - ./database:/app/database
     env_file:
       - .env
     depends_on:
       - parser
-    networks:
-      - codd_network
+    command: python -m bot
 
   parser:
-    build: ./parser
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codd_queue_parser
     restart: always
     volumes:
-      - ./data:/app/data
+      - ./bot:/app/bot
+      - ./database:/app/database
     env_file:
       - .env
-    networks:
-      - codd_network
-
-networks:
-  codd_network:
-    driver: bridge
-    
+    command: python -m bot.services.parser
