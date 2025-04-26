@@ -3,8 +3,10 @@ import logging
 import re
 import json
 import time
+import os
 from datetime import datetime
 from typing import Dict, Optional, List
+from logging.handlers import RotatingFileHandler
 
 import aiohttp
 import requests
@@ -13,11 +15,55 @@ from bs4 import BeautifulSoup
 from bot.config.config import load_config
 
 
+# Настройка отдельного логгера для парсера
+def setup_parser_logger():
+    # Создаем директорию для логов, если она не существует
+    os.makedirs("logs", exist_ok=True)
+    
+    # Загружаем конфигурацию
+    config = load_config()
+    
+    # Получаем логгер
+    parser_logger = logging.getLogger("parser")
+    
+    # Проверяем, не настроен ли он уже (чтобы избежать дублирования)
+    if not parser_logger.handlers:
+        # Определяем уровень логирования
+        log_level = getattr(logging, config.log_level, logging.INFO)
+        if config.debug_mode:
+            log_level = logging.DEBUG
+            
+        parser_logger.setLevel(log_level)
+        
+        # Создаем обработчик файла с ротацией
+        file_handler = RotatingFileHandler(
+            filename="logs/parser.log",
+            maxBytes=config.log_max_size,
+            backupCount=config.log_backup_count,
+            encoding="utf-8"
+        )
+        
+        # Форматирование сообщений логгера
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        file_handler.setFormatter(formatter)
+        
+        # Добавляем обработчик к логгеру
+        parser_logger.addHandler(file_handler)
+    
+    return parser_logger
+
+
+# Инициализируем логгер парсера
+parser_logger = setup_parser_logger()
+
+
 class CoddParser:
     def __init__(self):
         self.config = load_config()
         self.base_url = self.config.codd_url
-        self.logger = logging.getLogger("parser")
+        self.logger = parser_logger
     
     async def parse_car_data(self, car_number: str) -> Optional[Dict]:
         """Парсинг данных об автомобиле по его номеру."""
@@ -460,12 +506,8 @@ class CoddParser:
 
 async def start_parser():
     """Функция для запуска парсера в отдельном процессе."""
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    
-    logger = logging.getLogger("parser")
+    # Используем готовый логгер с ротацией, который уже настроен
+    logger = parser_logger
     logger.info("Запуск парсера")
     
     # Загружаем конфигурацию

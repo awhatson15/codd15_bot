@@ -2,9 +2,13 @@ import asyncio
 import aiosqlite
 import os
 import sqlite3
+import logging
 from typing import Dict, List, Optional, Tuple, Union
 
 from bot.config.config import load_config
+
+# Получаем логгер для модуля базы данных
+logger = logging.getLogger("database")
 
 
 def ensure_db_dir_exists():
@@ -19,6 +23,7 @@ async def init_db():
     ensure_db_dir_exists()
     config = load_config()
     
+    logger.info(f"Инициализация БД: {config.database_path}")
     async with aiosqlite.connect(config.database_path) as db:
         # Таблица пользователей
         await db.execute('''
@@ -46,6 +51,7 @@ async def init_db():
         ''')
         
         await db.commit()
+        logger.info("БД успешно инициализирована")
 
 
 async def add_user(user_id: int, username: str = None) -> bool:
@@ -59,9 +65,10 @@ async def add_user(user_id: int, username: str = None) -> bool:
                 (user_id, username)
             )
             await db.commit()
+        logger.info(f"Пользователь добавлен: user_id={user_id}, username={username}")
         return True
     except Exception as e:
-        print(f"Error adding user: {e}")
+        logger.error(f"Ошибка при добавлении пользователя: {e}")
         return False
 
 
@@ -76,9 +83,10 @@ async def update_car_number(user_id: int, car_number: str) -> bool:
                 (car_number, user_id)
             )
             await db.commit()
+        logger.info(f"Обновлен номер автомобиля: user_id={user_id}, car_number={car_number}")
         return True
     except Exception as e:
-        print(f"Error updating car number: {e}")
+        logger.error(f"Ошибка при обновлении номера автомобиля: {e}")
         return False
 
 
@@ -95,7 +103,7 @@ async def get_car_number(user_id: int) -> Optional[str]:
                 result = await cursor.fetchone()
                 return result[0] if result else None
     except Exception as e:
-        print(f"Error getting car number: {e}")
+        logger.error(f"Ошибка при получении номера автомобиля: {e}")
         return None
 
 
@@ -153,9 +161,10 @@ async def setup_notifications(user_id: int, settings: Dict) -> bool:
                 
             await db.execute(query, params)
             await db.commit()
+            logger.info(f"Настройки уведомлений обновлены для user_id={user_id}, settings={settings}")
             return True
     except Exception as e:
-        print(f"Error setting up notifications: {e}")
+        logger.error(f"Ошибка при настройке уведомлений: {e}")
         return False
 
 
@@ -187,7 +196,7 @@ async def get_notification_settings(user_id: int) -> Optional[Dict]:
                     'last_notification': result[6]
                 }
     except Exception as e:
-        print(f"Error getting notification settings: {e}")
+        logger.error(f"Ошибка при получении настроек уведомлений: {e}")
         return None
 
 
@@ -202,8 +211,9 @@ async def update_last_notification(user_id: int) -> None:
                 (user_id,)
             )
             await db.commit()
+            logger.debug(f"Обновлено время последнего уведомления для user_id={user_id}")
     except Exception as e:
-        print(f"Error updating last notification: {e}")
+        logger.error(f"Ошибка при обновлении времени последнего уведомления: {e}")
 
 
 async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
@@ -238,9 +248,10 @@ async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
                     }
                     result.append((user_id, car_number, settings))
             
+            logger.debug(f"Получен список из {len(result)} пользователей для уведомлений")
             return result
     except Exception as e:
-        print(f"Error getting users for notification: {e}")
+        logger.error(f"Ошибка при получении списка пользователей для уведомлений: {e}")
         return []
 
 
@@ -255,7 +266,8 @@ async def delete_car_number(user_id: int) -> bool:
                 (user_id,)
             )
             await db.commit()
-        return True
+            logger.info(f"Удален номер автомобиля для user_id={user_id}")
+            return True
     except Exception as e:
-        print(f"Error deleting car number: {e}")
+        logger.error(f"Ошибка при удалении номера автомобиля: {e}")
         return False 

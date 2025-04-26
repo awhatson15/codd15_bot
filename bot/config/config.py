@@ -13,6 +13,11 @@ class Config(BaseModel):
     use_redis: bool = False
     redis_url: str = "redis://localhost:6379/0"
     debug_mode: bool = False
+    
+    # Настройки логирования
+    log_level: str = "INFO"
+    log_max_size: int = 10 * 1024 * 1024  # 10 МБ по умолчанию
+    log_backup_count: int = 5  # Количество сохраняемых файлов
 
 
 def load_config() -> Config:
@@ -28,4 +33,9 @@ def load_config() -> Config:
         use_redis=os.getenv("USE_REDIS", "false").lower() == "true",
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true",
+        
+        # Настройки логирования
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        log_max_size=int(os.getenv("LOG_MAX_SIZE", 10 * 1024 * 1024)),
+        log_backup_count=int(os.getenv("LOG_BACKUP_COUNT", 5)),
     ) 

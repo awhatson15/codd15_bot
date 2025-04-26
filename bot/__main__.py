@@ -2,6 +2,8 @@ import asyncio
 import logging
 import sys
 from collections import OrderedDict
+from logging.handlers import RotatingFileHandler
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -16,19 +18,8 @@ from bot.models.database import init_db
 from bot.services.notifications import start_notification_service
 from bot.utils.health_check import start_health_server
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("logs/bot.log"),
-        logging.StreamHandler()
-    ]
-)
-
-# Создание логгера для парсера с детальным логированием
-parser_logger = logging.getLogger("parser")
-parser_logger.setLevel(logging.DEBUG)
+# Создаем директорию для логов, если она не существует
+os.makedirs("logs", exist_ok=True)
 
 # Кеш для хранения последних обработанных message_id
 # Используем OrderedDict чтобы автоматически удалять старые записи
@@ -40,6 +31,44 @@ _MAX_CACHE_SIZE = 100
 async def main():
     # Загрузка конфигурации
     config = load_config()
+    
+    # Настройка логирования на основе конфигурации
+    log_level = getattr(logging, config.log_level, logging.INFO)
+    
+    # Настраиваем корневой логгер
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Очищаем существующие обработчики, если они есть
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Добавляем обработчик для файла с ротацией
+    file_handler = RotatingFileHandler(
+        filename="logs/bot.log",
+        maxBytes=config.log_max_size,
+        backupCount=config.log_backup_count,
+        encoding="utf-8"
+    )
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ))
+    root_logger.addHandler(file_handler)
+    
+    # Добавляем обработчик для вывода в консоль
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ))
+    root_logger.addHandler(console_handler)
+    
+    # Создаем логгер для базы данных
+    db_logger = logging.getLogger("database")
+    db_logger.setLevel(log_level)
+    
+    # Создаем логгер для парсера с детальным логированием
+    parser_logger = logging.getLogger("parser")
+    parser_logger.setLevel(logging.DEBUG if config.debug_mode else log_level)
     
     # Инициализация базы данных
     await init_db()
