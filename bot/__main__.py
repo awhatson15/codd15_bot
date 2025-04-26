@@ -99,6 +99,7 @@ async def main():
             {"command": "settings", "description": "Настройки уведомлений"},
             {"command": "stats", "description": "Статистика очереди"},
             {"command": "forecast", "description": "Прогноз времени ожидания"},
+            {"command": "chat", "description": "Анонимный чат водителей"},
         ])
         
         # Запуск сервиса уведомлений

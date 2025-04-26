@@ -106,6 +106,48 @@ async def init_db():
         )
         ''')
         
+        # Таблица для анонимного чата
+        await db.execute('''
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            anonymous_id TEXT NOT NULL,
+            message_text TEXT NOT NULL,
+            queue_position INTEGER,
+            has_media BOOLEAN DEFAULT FALSE,
+            media_type TEXT,
+            media_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_deleted BOOLEAN DEFAULT FALSE,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+        ''')
+        
+        # Таблица настроек чата пользователей
+        await db.execute('''
+        CREATE TABLE IF NOT EXISTS chat_settings (
+            user_id INTEGER PRIMARY KEY,
+            chat_enabled BOOLEAN DEFAULT TRUE,
+            anonymous_id TEXT UNIQUE,
+            banned_until TIMESTAMP,
+            last_active TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+        ''')
+        
+        # Таблица жалоб на сообщения
+        await db.execute('''
+        CREATE TABLE IF NOT EXISTS message_reports (
+            report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            reported_by INTEGER NOT NULL,
+            reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (message_id) REFERENCES chat_messages(message_id),
+            FOREIGN KEY (reported_by) REFERENCES users(user_id)
+        )
+        ''')
+        
         await db.commit()
         logger.info("БД успешно инициализирована")
 
@@ -320,4 +362,241 @@ async def delete_car_number(user_id: int) -> bool:
         return True
     except Exception as e:
         logger.error(f"Ошибка при удалении номера автомобиля: {e}")
-        return False 
+        return False
+
+
+# Функции для работы с анонимным чатом
+async def generate_anonymous_id(user_id: int) -> str:
+    """Создаёт или возвращает анонимный идентификатор пользователя для чата."""
+    try:
+        db = await get_db_connection()
+        
+        # Проверяем, есть ли уже анонимный ID
+        async with db.execute(
+            'SELECT anonymous_id FROM chat_settings WHERE user_id = ?',
+            (user_id,)
+        ) as cursor:
+            result = await cursor.fetchone()
+            
+            if result and result[0]:
+                return result[0]
+        
+        # Генерируем новый ID в формате "Водитель #N"
+        import random
+        new_id = f"Водитель #{random.randint(1000, 9999)}"
+        
+        # Проверяем, не занят ли такой ID
+        async with db.execute(
+            'SELECT 1 FROM chat_settings WHERE anonymous_id = ?',
+            (new_id,)
+        ) as cursor:
+            exists = await cursor.fetchone()
+        
+        # Если ID занят, пробуем еще раз (рекурсивно)
+        if exists:
+            return await generate_anonymous_id(user_id)
+        
+        # Сохраняем новый ID
+        await db.execute(
+            '''INSERT INTO chat_settings (user_id, anonymous_id, chat_enabled, last_active)
+               VALUES (?, ?, TRUE, CURRENT_TIMESTAMP)
+               ON CONFLICT (user_id) DO UPDATE SET 
+               anonymous_id = excluded.anonymous_id,
+               last_active = CURRENT_TIMESTAMP''',
+            (user_id, new_id)
+        )
+        await db.commit()
+        
+        return new_id
+    except Exception as e:
+        logger.error(f"Ошибка при генерации анонимного ID: {e}")
+        # Возвращаем запасной вариант
+        return f"Водитель #{user_id % 10000}"
+
+
+async def save_chat_message(user_id: int, message_text: str, media_info: Dict = None) -> Optional[int]:
+    """Сохраняет сообщение пользователя в чат."""
+    try:
+        db = await get_db_connection()
+        
+        # Получаем анонимный ID
+        anonymous_id = await generate_anonymous_id(user_id)
+        
+        # Получаем текущую позицию пользователя в очереди
+        car_number = await get_car_number(user_id)
+        queue_position = None
+        
+        if car_number:
+            from bot.services.parser import CoddParser
+            parser = CoddParser()
+            car_data = await parser.parse_car_data(car_number)
+            if car_data:
+                queue_position = car_data['queue_position']
+        
+        # Определяем, есть ли медиа-контент
+        has_media = bool(media_info)
+        media_type = media_info.get('type') if media_info else None
+        media_id = media_info.get('id') if media_info else None
+        
+        # Сохраняем сообщение
+        async with db.execute(
+            '''INSERT INTO chat_messages 
+               (user_id, anonymous_id, message_text, queue_position, has_media, media_type, media_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (user_id, anonymous_id, message_text, queue_position, has_media, media_type, media_id)
+        ) as cursor:
+            message_id = cursor.lastrowid
+        
+        # Обновляем время последней активности
+        await db.execute(
+            'UPDATE chat_settings SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
+            (user_id,)
+        )
+        
+        await db.commit()
+        return message_id
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении сообщения в чат: {e}")
+        return None
+
+
+async def get_recent_messages(limit: int = 20) -> List[Dict]:
+    """Получает последние сообщения из чата."""
+    try:
+        db = await get_db_connection()
+        
+        # Получаем сообщения, которые не были удалены
+        query = '''
+        SELECT 
+            message_id, anonymous_id, message_text, queue_position, 
+            has_media, media_type, media_id, created_at
+        FROM chat_messages
+        WHERE is_deleted = FALSE
+        ORDER BY created_at DESC
+        LIMIT ?
+        '''
+        
+        result = []
+        async with db.execute(query, (limit,)) as cursor:
+            async for row in cursor:
+                result.append({
+                    'message_id': row[0],
+                    'anonymous_id': row[1],
+                    'message_text': row[2],
+                    'queue_position': row[3],
+                    'has_media': bool(row[4]),
+                    'media_type': row[5],
+                    'media_id': row[6],
+                    'created_at': row[7]
+                })
+        
+        # Переворачиваем список, чтобы старые сообщения были первыми
+        return list(reversed(result))
+    except Exception as e:
+        logger.error(f"Ошибка при получении сообщений чата: {e}")
+        return []
+
+
+async def report_message(message_id: int, user_id: int, reason: str = None) -> bool:
+    """Отправить жалобу на сообщение."""
+    try:
+        db = await get_db_connection()
+        
+        # Проверяем, существует ли сообщение
+        async with db.execute(
+            'SELECT 1 FROM chat_messages WHERE message_id = ? AND is_deleted = FALSE',
+            (message_id,)
+        ) as cursor:
+            message_exists = await cursor.fetchone()
+        
+        if not message_exists:
+            return False
+        
+        # Добавляем жалобу
+        await db.execute(
+            'INSERT INTO message_reports (message_id, reported_by, reason) VALUES (?, ?, ?)',
+            (message_id, user_id, reason)
+        )
+        
+        # Проверяем количество жалоб на это сообщение
+        async with db.execute(
+            'SELECT COUNT(*) FROM message_reports WHERE message_id = ?',
+            (message_id,)
+        ) as cursor:
+            count = (await cursor.fetchone())[0]
+        
+        # Если жалоб больше 3, помечаем сообщение как удаленное
+        if count >= 3:
+            await db.execute(
+                'UPDATE chat_messages SET is_deleted = TRUE WHERE message_id = ?',
+                (message_id,)
+            )
+        
+        await db.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при отправке жалобы на сообщение: {e}")
+        return False
+
+
+async def toggle_chat_participation(user_id: int, enabled: bool) -> bool:
+    """Включить или отключить участие в чате."""
+    try:
+        db = await get_db_connection()
+        
+        # Обновляем настройки или создаем новую запись
+        await db.execute(
+            '''INSERT INTO chat_settings (user_id, chat_enabled, last_active)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT (user_id) DO UPDATE SET 
+               chat_enabled = ?,
+               last_active = CURRENT_TIMESTAMP''',
+            (user_id, enabled, enabled)
+        )
+        
+        await db.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при изменении участия в чате: {e}")
+        return False
+
+
+async def is_user_banned(user_id: int) -> bool:
+    """Проверяет, забанен ли пользователь в чате."""
+    try:
+        db = await get_db_connection()
+        
+        async with db.execute(
+            '''SELECT banned_until FROM chat_settings 
+               WHERE user_id = ? AND banned_until IS NOT NULL AND banned_until > CURRENT_TIMESTAMP''',
+            (user_id,)
+        ) as cursor:
+            result = await cursor.fetchone()
+        
+        return bool(result)
+    except Exception as e:
+        logger.error(f"Ошибка при проверке бана пользователя: {e}")
+        return False
+
+
+async def get_active_chat_users() -> List[int]:
+    """Получает список активных пользователей чата за последние 30 минут."""
+    try:
+        db = await get_db_connection()
+        
+        query = '''
+        SELECT user_id FROM chat_settings
+        WHERE chat_enabled = TRUE
+        AND last_active > datetime('now', '-30 minutes')
+        AND (banned_until IS NULL OR banned_until < CURRENT_TIMESTAMP)
+        '''
+        
+        result = []
+        async with db.execute(query) as cursor:
+            async for row in cursor:
+                result.append(row[0])
+        
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении активных пользователей чата: {e}")
+        return [] 

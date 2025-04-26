@@ -9,6 +9,7 @@ from bot.utils.message_utils import safe_edit_message
 from bot.services.analytics import QueueAnalytics
 from bot.services.parser import CoddParser
 from bot.models.database import get_user_car
+from bot.handlers.chat import cmd_chat
 
 # Создаем экземпляр сервиса аналитики
 analytics = QueueAnalytics()
@@ -128,6 +129,20 @@ async def cmd_forecast(message: Message):
         await message.answer("Извините, не удалось получить прогноз.")
 
 
+async def open_chat_callback(callback: CallbackQuery):
+    """Обработчик инлайн-кнопки 'Анонимный чат'."""
+    await callback.answer()
+    
+    # Просто отправляем сообщение с инструкцией
+    await callback.message.edit_text(
+        "💬 <b>Анонимный чат водителей</b>\n\n"
+        "Чтобы войти в чат, отправьте команду /chat\n\n"
+        "В чате вы сможете общаться с другими водителями анонимно. "
+        "Другие участники будут видеть только ваш псевдоним и позицию в очереди.",
+        reply_markup=get_main_menu()
+    )
+
+
 def get_command_router() -> Router:
     """Создание роутера для команд."""
     router = Router()
@@ -136,5 +151,6 @@ def get_command_router() -> Router:
     router.callback_query.register(help_callback, F.data == "help")
     router.message.register(cmd_stats, Command("stats"))
     router.message.register(cmd_forecast, Command("forecast"))
+    router.callback_query.register(open_chat_callback, F.data == "open_chat")
     
     return router 

@@ -9,7 +9,7 @@ def get_main_menu() -> InlineKeyboardBuilder:
     buttons = [
         InlineKeyboardButton(text="🔍 Проверить очередь", callback_data="check_queue"),
         InlineKeyboardButton(text="⚙️ Настроить уведомления", callback_data="settings"),
-        InlineKeyboardButton(text="🔕 Отключить уведомления", callback_data="toggle_notifications"),
+        InlineKeyboardButton(text="💬 Анонимный чат", callback_data="open_chat"),
         InlineKeyboardButton(text="🚗 Изменить номер авто", callback_data="change_car"),
         InlineKeyboardButton(text="🗑️ Удалить номер авто", callback_data="delete_car"),
         InlineKeyboardButton(text="❓ Справка", callback_data="help"),
@@ -81,4 +81,68 @@ def get_notification_threshold_keyboard() -> InlineKeyboardBuilder:
     
     # Устанавливаем по 3 кнопки в ряд
     builder.adjust(3, 3, 1)
+    return builder.as_markup()
+
+
+def get_chat_keyboard() -> InlineKeyboardBuilder:
+    """Клавиатура для анонимного чата."""
+    builder = InlineKeyboardBuilder()
+    
+    buttons = [
+        InlineKeyboardButton(text="✏️ Написать сообщение", callback_data="send_message"),
+        InlineKeyboardButton(text="🔄 Обновить чат", callback_data="refresh_chat"),
+        InlineKeyboardButton(text="⚠️ Пожаловаться", callback_data="report_message"),
+        InlineKeyboardButton(text="❌ Выйти из чата", callback_data="exit_chat"),
+        InlineKeyboardButton(text="◀️ Назад в меню", callback_data="back_to_main"),
+    ]
+    
+    builder.add(*buttons)
+    builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+
+def get_chat_message_keyboard() -> InlineKeyboardBuilder:
+    """Клавиатура для сообщения в чате."""
+    builder = InlineKeyboardBuilder()
+    
+    buttons = [
+        InlineKeyboardButton(text="👍 Спасибо", callback_data="like_message"),
+        InlineKeyboardButton(text="⚠️ Пожаловаться", callback_data="report_message"),
+    ]
+    
+    builder.add(*buttons)
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def get_chat_report_keyboard() -> InlineKeyboardBuilder:
+    """Клавиатура для жалобы на сообщение."""
+    builder = InlineKeyboardBuilder()
+    
+    reasons = [
+        "Оскорбление",
+        "Спам",
+        "Нецензурная лексика",
+        "Личные данные"
+    ]
+    
+    buttons = [
+        InlineKeyboardButton(text=reason, callback_data=f"report_reason_{i}")
+        for i, reason in enumerate(reasons)
+    ]
+    
+    # Добавляем кнопку отмены
+    buttons.append(InlineKeyboardButton(text="Отмена", callback_data="cancel_report"))
+    
+    builder.add(*buttons)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def get_back_to_chat_keyboard() -> InlineKeyboardBuilder:
+    """Клавиатура для возврата в чат."""
+    builder = InlineKeyboardBuilder()
+    
+    builder.add(InlineKeyboardButton(text="◀️ Вернуться в чат", callback_data="back_to_chat"))
+    
     return builder.as_markup() 

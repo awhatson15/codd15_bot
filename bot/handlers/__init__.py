@@ -5,6 +5,7 @@ from bot.handlers.command import get_command_router
 from bot.handlers.car import get_car_router
 from bot.handlers.settings import get_settings_router
 from bot.handlers.common import get_common_router
+from bot.handlers.chat import get_chat_router
 
 
 def get_all_routers() -> list[Router]:
@@ -14,6 +15,7 @@ def get_all_routers() -> list[Router]:
         get_command_router(),
         get_car_router(),
         get_settings_router(),
+        get_chat_router(),
         get_common_router(),
     ]
     

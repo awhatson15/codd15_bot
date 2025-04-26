@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bot.config.config import load_config
 from bot.models.database import (
     get_users_for_notification, 
-    update_last_notification, get_notification_settings
+    update_last_notification, get_notification_settings, get_active_chat_users
 )
 from bot.services.parser import CoddParser
 
@@ -199,4 +199,41 @@ async def start_notification_service(bot: Bot):
     """Запуск сервиса уведомлений."""
     notification_service = NotificationService(bot)
     await notification_service.start()
-    return notification_service 
+    return notification_service
+
+
+async def process_chat_notifications(bot: Bot, message_data: dict, sender_id: int):
+    """Отправляет уведомления активным пользователям чата о новом сообщении."""
+    try:
+        # Получаем список активных пользователей чата (исключая отправителя)
+        users = await get_active_chat_users()
+        
+        # Исключаем отправителя из списка получателей
+        if sender_id in users:
+            users.remove(sender_id)
+        
+        if not users:
+            return
+        
+        # Формируем сообщение
+        position_text = f" (#{message_data['queue_position']})" if message_data.get('queue_position') else ""
+        notification_text = (
+            f"💬 <b>Новое сообщение в чате</b>\n\n"
+            f"<b>{message_data['anonymous_id']}</b>{position_text}:\n"
+            f"{message_data['message_text']}\n\n"
+            f"Используйте /chat чтобы просмотреть все сообщения."
+        )
+        
+        # Отправляем уведомления
+        for user_id in users:
+            try:
+                await bot.send_message(
+                    user_id,
+                    notification_text
+                )
+            except Exception as e:
+                logging.error(f"Не удалось отправить уведомление о сообщении в чате пользователю {user_id}: {e}")
+                continue
+    
+    except Exception as e:
+        logging.error(f"Ошибка при обработке уведомлений чата: {e}") 
