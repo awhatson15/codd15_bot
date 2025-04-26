@@ -11,7 +11,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from bot.config.config import load_config
-from bot.models.database import update_queue_data
 
 
 class CoddParser:
@@ -426,184 +425,70 @@ class CoddParser:
         # Просто возвращаем нормализованный номер без дополнительных проверок
         return normalized
 
-
-async def start_parser():
-    """Запуск парсера как отдельного процесса."""
-    parser = CoddParser()
-    config = load_config()
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    logger = logging.getLogger("parser")
-    
-    logger.info("Парсер запущен")
-    
-    # Нормализуем существующие номера автомобилей в базе данных
-    await normalize_existing_car_numbers(logger)
-    
-    # Проверка содержимого базы данных после нормализации
-    await log_database_content(logger)
-    
-    while True:
+    async def get_first_car_position(self) -> Optional[int]:
+        """Получить позицию первого автомобиля в очереди."""
         try:
-            # Парсинг данных о всех автомобилях
-            cars_data = await parser.parse_all_cars()
+            # Получаем данные о всех автомобилях
+            cars_data = await self.parse_all_cars()
             
-            if cars_data:
-                logger.info(f"Получены данные о {len(cars_data)} автомобилях")
-                
-                # Логируем несколько номеров до обновления
-                for i, (car_number, data) in enumerate(list(cars_data.items())[:5]):
-                    logger.info(f"Пример {i+1}: Номер '{car_number}', модель '{data['model']}', позиция {data['queue_position']}")
-                
-                # Обновление данных в БД
-                await update_queue_data(cars_data)
-                
-                # Проверяем базу после обновления
-                await log_database_content(logger)
-            else:
-                logger.warning("Не удалось получить данные об автомобилях")
+            if not cars_data:
+                self.logger.warning("Не удалось получить данные о автомобилях для определения первой позиции")
+                return None
+            
+            # Ищем автомобиль с минимальным номером в очереди
+            min_position = float('inf')  # Начальное значение - бесконечность
+            
+            for car_number, data in cars_data.items():
+                position = data.get('queue_position', 0)
+                if position > 0 and position < min_position:
+                    min_position = position
+            
+            if min_position != float('inf'):
+                self.logger.info(f"Найдена первая позиция в очереди: {min_position}")
+                return int(min_position)
+            
+            self.logger.warning("Не удалось определить первую позицию в очереди")
+            return None
             
         except Exception as e:
-            logger.error(f"Ошибка в работе парсера: {e}")
-        
-        # Пауза перед следующим запросом
-        await asyncio.sleep(config.parser_interval)
+            self.logger.error(f"Ошибка при получении позиции первого автомобиля: {e}")
+            return None
 
 
-async def normalize_existing_car_numbers(logger):
-    """Нормализует номера автомобилей в существующих записях базы данных."""
-    try:
-        config = load_config()
-        import aiosqlite
-        from bot.models.database import _normalize_car_number
-        
-        async with aiosqlite.connect(config.database_path) as db:
-            # Получаем все записи из таблицы queue_data
-            async with db.execute('SELECT car_number FROM queue_data') as cursor:
-                car_records = await cursor.fetchall()
-            
-            if not car_records:
-                logger.info("Нет записей для нормализации номеров автомобилей в таблице queue_data")
-            else:
-                logger.info(f"Начинаем нормализацию {len(car_records)} номеров автомобилей в таблице queue_data")
-                normalized_count = 0
-                
-                for record in car_records:
-                    car_number = record[0]
-                    normalized_number = _normalize_car_number(car_number)
-                    
-                    if car_number != normalized_number:
-                        # Проверяем, существует ли уже запись с нормализованным номером
-                        async with db.execute(
-                            'SELECT 1 FROM queue_data WHERE car_number = ?', 
-                            (normalized_number,)
-                        ) as cursor:
-                            exists = await cursor.fetchone()
-                        
-                        if exists:
-                            # Если существует, удаляем ненормализованную запись
-                            await db.execute(
-                                'DELETE FROM queue_data WHERE car_number = ?', 
-                                (car_number,)
-                            )
-                        else:
-                            # Если не существует, обновляем текущую запись
-                            await db.execute(
-                                'UPDATE queue_data SET car_number = ? WHERE car_number = ?',
-                                (normalized_number, car_number)
-                            )
-                        
-                        # Обновляем также записи в таблице истории
-                        await db.execute(
-                            'UPDATE queue_history SET car_number = ? WHERE car_number = ?',
-                            (normalized_number, car_number)
-                        )
-                        
-                        normalized_count += 1
-                
-                logger.info(f"Нормализовано {normalized_count} номеров автомобилей в таблице queue_data")
-            
-            # Теперь нормализуем номера автомобилей в таблице пользователей
-            async with db.execute('SELECT user_id, car_number FROM users WHERE car_number IS NOT NULL') as cursor:
-                user_records = await cursor.fetchall()
-            
-            if not user_records:
-                logger.info("Нет записей для нормализации номеров автомобилей в таблице пользователей")
-            else:
-                logger.info(f"Начинаем нормализацию номеров автомобилей для {len(user_records)} пользователей")
-                normalized_user_count = 0
-                
-                for user_id, car_number in user_records:
-                    if car_number:
-                        normalized_number = _normalize_car_number(car_number)
-                        
-                        if car_number != normalized_number:
-                            await db.execute(
-                                'UPDATE users SET car_number = ? WHERE user_id = ?',
-                                (normalized_number, user_id)
-                            )
-                            normalized_user_count += 1
-                
-                logger.info(f"Нормализовано {normalized_user_count} номеров автомобилей в таблице пользователей")
-            
-            await db.commit()
+async def start_parser():
+    """Функция для запуска парсера в отдельном процессе."""
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     
-    except Exception as e:
-        logger.error(f"Ошибка при нормализации номеров автомобилей: {e}")
-        logger.exception("Стек ошибки:")
-
-
-async def log_database_content(logger):
-    """Логирует содержимое базы данных для отладки."""
-    try:
-        config = load_config()
-        import aiosqlite
-        
-        async with aiosqlite.connect(config.database_path) as db:
-            # Проверяем содержимое таблицы queue_data
-            async with db.execute('SELECT car_number, model, queue_position FROM queue_data') as cursor:
-                records = await cursor.fetchall()
-                
-                if not records:
-                    logger.warning("База данных queue_data пуста!")
-                    return
-                
-                logger.info(f"В базе данных queue_data {len(records)} записей")
-                
-                # Выводим первые 10 записей
-                for i, (car_number, model, position) in enumerate(records[:10]):
-                    logger.info(f"Запись {i+1}: Номер '{car_number}', модель '{model}', позиция {position}")
-                
-                # Проверяем, есть ли интересующий нас номер
-                test_numbers = ["752LP61-607L01", "752LP61607L01", "752LP61 607L01"]
-                for test_number in test_numbers:
-                    async with db.execute(
-                        'SELECT car_number FROM queue_data WHERE car_number = ?', 
-                        (test_number,)
-                    ) as cursor:
-                        result = await cursor.fetchone()
-                        if result:
-                            logger.info(f"✅ Номер '{test_number}' найден в базе как '{result[0]}'")
-                        else:
-                            logger.info(f"❌ Номер '{test_number}' НЕ найден в базе")
-                
-                # Ищем похожие номера
-                for test_number in test_numbers:
-                    async with db.execute(
-                        'SELECT car_number FROM queue_data WHERE car_number LIKE ?', 
-                        (f"%{test_number[-6:]}%",)
-                    ) as cursor:
-                        similar = await cursor.fetchall()
-                        if similar:
-                            logger.info(f"Похожие на '{test_number}' номера:")
-                            for car in similar:
-                                logger.info(f"  - '{car[0]}'")
-                
-    except Exception as e:
-        logger.error(f"Ошибка при проверке базы данных: {e}")
+    logger = logging.getLogger("parser")
+    logger.info("Запуск парсера")
+    
+    # Загружаем конфигурацию
+    config = load_config()
+    
+    parser = CoddParser()
+    
+    # Запускаем бесконечный цикл обновления данных
+    while True:
+        try:
+            logger.info("Обновление данных об автомобилях")
+            
+            # Получаем текущие данные о всех автомобилях в очереди
+            car_data = await parser.parse_all_cars()
+            
+            if car_data:
+                logger.info(f"Получены данные о {len(car_data)} автомобилях")
+            else:
+                logger.warning("Не удалось получить данные о автомобилях")
+            
+            # Ждем заданный интервал перед следующим обновлением
+            await asyncio.sleep(config.parser_interval)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении данных: {e}")
+            await asyncio.sleep(10)  # При ошибке ждем немного меньше
 
 
 if __name__ == "__main__":

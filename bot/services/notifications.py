@@ -8,9 +8,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from bot.config.config import load_config
 from bot.models.database import (
-    get_car_data, get_users_for_notification, 
-    update_last_notification, get_notification_settings,
-    update_queue_data
+    get_users_for_notification, 
+    update_last_notification, get_notification_settings
 )
 from bot.services.parser import CoddParser
 
@@ -21,6 +20,11 @@ class NotificationService:
         self.config = load_config()
         self.logger = logging.getLogger("notifications")
         self.scheduler = AsyncIOScheduler()
+        self.parser = CoddParser()
+        
+        # Хранение данных в памяти вместо БД
+        self.car_positions = {}  # Словарь для отслеживания позиций автомобилей
+        self.first_car_position = None  # Позиция первого автомобиля в очереди
     
     async def start(self):
         """Запуск сервиса уведомлений."""
@@ -43,6 +47,9 @@ class NotificationService:
             users = await get_users_for_notification()
             self.logger.info(f"Проверка уведомлений для {len(users)} пользователей")
             
+            # Обновляем позицию первого автомобиля в очереди
+            await self._update_first_car_position()
+            
             for user_id, car_number, settings in users:
                 try:
                     await self.process_user_notification(user_id, car_number, settings)
@@ -54,27 +61,18 @@ class NotificationService:
     
     async def process_user_notification(self, user_id: int, car_number: str, settings: Dict):
         """Обработка уведомлений для конкретного пользователя."""
-        # Получаем данные об автомобиле
-        car_data = await get_car_data(car_number)
-        
-        # Если нет данных в базе, попробуем получить напрямую с сайта
+        # Получаем данные об автомобиле напрямую через парсер
+        car_data = await self.parser.parse_car_data(car_number)
         if not car_data:
-            self.logger.warning(f"Нет данных об автомобиле {car_number} для пользователя {user_id}. Пробуем парсинг напрямую.")
-            parser = CoddParser()
-            parsed_car_data = await parser.parse_car_data(car_number)
-            
-            if parsed_car_data:
-                self.logger.info(f"Получены данные с сайта для автомобиля {car_number}")
-                # Сохраняем данные в базу для будущих запросов
-                await update_queue_data({car_number: {
-                    'model': parsed_car_data['model'],
-                    'queue_position': parsed_car_data['queue_position'],
-                    'registration_date': parsed_car_data['registration_date']
-                }})
-                car_data = parsed_car_data
-            else:
-                self.logger.warning(f"Автомобиль {car_number} не найден ни в базе, ни на сайте для пользователя {user_id}")
-                return
+            self.logger.warning(f"Нет данных об автомобиле {car_number} для пользователя {user_id}")
+            return
+        
+        # Сохраняем текущую позицию для отслеживания изменений
+        current_position = car_data['queue_position']
+        if car_number not in self.car_positions:
+            self.car_positions[car_number] = current_position
+            # Пропускаем первое уведомление, чтобы избежать ложных срабатываний
+            return
         
         # Получаем время последнего уведомления
         last_notification = settings.get('last_notification')
@@ -108,11 +106,11 @@ class NotificationService:
         # 2. При изменении позиции
         if settings.get('position_change'):
             # Получаем последнюю известную позицию
-            last_position = await self._get_last_known_position(user_id, car_number)
+            last_position = self.car_positions.get(car_number)
             
-            if last_position and last_position != car_data['queue_position']:
+            if last_position and last_position != current_position:
                 send_notification = True
-                position_change = last_position - car_data['queue_position']
+                position_change = last_position - current_position
                 change_text = (
                     f"⬆️ повысилась на {abs(position_change)}" if position_change > 0 
                     else f"⬇️ понизилась на {abs(position_change)}"
@@ -125,12 +123,14 @@ class NotificationService:
                     f"Текущий номер в очереди: *{car_data['queue_position']}*\n"
                     f"Предыдущий номер: {last_position}"
                 )
+                
+                # Обновляем сохраненную позицию
+                self.car_positions[car_number] = current_position
         
         # 3. При сдвиге очереди на N позиций
-        if settings.get('threshold_change'):
-            # Получаем последнюю известную позицию первого авто в очереди
-            last_first_position = await self._get_first_position()
-            current_first_position = await self._get_current_first_position()
+        if settings.get('threshold_change') and self.first_car_position is not None:
+            last_first_position = self._get_last_first_position()
+            current_first_position = self.first_car_position
             
             if last_first_position and current_first_position:
                 threshold = settings.get('threshold_value', 10)
@@ -158,24 +158,28 @@ class NotificationService:
             except Exception as e:
                 self.logger.error(f"Ошибка при отправке уведомления пользователю {user_id}: {e}")
     
-    async def _get_last_known_position(self, user_id: int, car_number: str) -> Optional[int]:
-        """Получить последнюю известную позицию автомобиля."""
-        # В реальной системе эту информацию нужно хранить в БД
-        # В текущей реализации просто возвращаем None, что приведет
-        # к отсутствию уведомлений при первом запуске
-        return None
+    async def _update_first_car_position(self):
+        """Обновляет позицию первого автомобиля в очереди."""
+        try:
+            # Получаем данные о первой машине в очереди
+            # Это пример, на практике нужно реализовать логику получения первой машины
+            # через парсер или другие методы
+            first_car_data = await self.parser.get_first_car_position()
+            
+            if first_car_data is not None:
+                # Сохраняем предыдущую позицию
+                old_position = self.first_car_position
+                
+                # Обновляем текущую позицию
+                self.first_car_position = first_car_data
+                
+                self.logger.info(f"Позиция первого автомобиля обновлена: {self.first_car_position}")
+        except Exception as e:
+            self.logger.error(f"Ошибка при обновлении позиции первого автомобиля: {e}")
     
-    async def _get_first_position(self) -> Optional[int]:
-        """Получить последнюю известную позицию первого автомобиля в очереди."""
-        # В реальной системе эту информацию нужно хранить в БД
-        # Здесь просто заглушка
-        return None
-    
-    async def _get_current_first_position(self) -> Optional[int]:
-        """Получить текущую позицию первого автомобиля в очереди."""
-        # В реальной системе это позиция автомобиля с наименьшим номером в очереди
-        # Здесь просто заглушка
-        return None
+    def _get_last_first_position(self) -> Optional[int]:
+        """Возвращает сохраненную позицию первого автомобиля."""
+        return getattr(self, '_last_first_position', self.first_car_position)
 
 
 async def start_notification_service(bot: Bot):

@@ -3,7 +3,6 @@ import aiosqlite
 import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple, Union
-import logging
 
 from bot.config.config import load_config
 
@@ -46,28 +45,6 @@ async def init_db():
         )
         ''')
         
-        # Таблица с данными об автомобилях в очереди
-        await db.execute('''
-        CREATE TABLE IF NOT EXISTS queue_data (
-            car_number TEXT PRIMARY KEY,
-            model TEXT,
-            queue_position INTEGER,
-            registration_date TEXT,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # Таблица истории очереди
-        await db.execute('''
-        CREATE TABLE IF NOT EXISTS queue_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            car_number TEXT,
-            queue_position INTEGER,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (car_number) REFERENCES queue_data(car_number)
-        )
-        ''')
-        
         await db.commit()
 
 
@@ -93,13 +70,10 @@ async def update_car_number(user_id: int, car_number: str) -> bool:
     config = load_config()
     
     try:
-        # Нормализуем номер автомобиля
-        normalized_car_number = _normalize_car_number(car_number)
-        
         async with aiosqlite.connect(config.database_path) as db:
             await db.execute(
                 'UPDATE users SET car_number = ? WHERE user_id = ?',
-                (normalized_car_number, user_id)
+                (car_number, user_id)
             )
             await db.commit()
         return True
@@ -217,168 +191,6 @@ async def get_notification_settings(user_id: int) -> Optional[Dict]:
         return None
 
 
-async def update_queue_data(car_data: Dict[str, Dict]) -> bool:
-    """Обновить данные об очереди."""
-    config = load_config()
-    
-    try:
-        async with aiosqlite.connect(config.database_path) as db:
-            for car_number, data in car_data.items():
-                # Нормализуем номер автомобиля для сохранения в базу
-                normalized_car_number = _normalize_car_number(car_number)
-                
-                # Проверяем, есть ли изменения в очереди
-                async with db.execute(
-                    'SELECT queue_position FROM queue_data WHERE car_number = ?',
-                    (normalized_car_number,)
-                ) as cursor:
-                    result = await cursor.fetchone()
-                    old_position = result[0] if result else None
-                
-                # Обновляем данные об автомобиле
-                await db.execute(
-                    '''INSERT OR REPLACE INTO queue_data 
-                       (car_number, model, queue_position, registration_date, last_updated) 
-                       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)''',
-                    (normalized_car_number, data['model'], data['queue_position'], data['registration_date'])
-                )
-                
-                # Сохраняем историю изменений позиции, если она изменилась
-                if old_position is None or old_position != data['queue_position']:
-                    await db.execute(
-                        'INSERT INTO queue_history (car_number, queue_position) VALUES (?, ?)',
-                        (normalized_car_number, data['queue_position'])
-                    )
-            
-            await db.commit()
-            return True
-    except Exception as e:
-        print(f"Error updating queue data: {e}")
-        return False
-
-
-async def get_car_data(car_number: str) -> Optional[Dict]:
-    """Получить данные об автомобиле."""
-    config = load_config()
-    
-    try:
-        # Нормализуем номер автомобиля для поиска
-        normalized_car_number = _normalize_car_number(car_number)
-        
-        # Добавляем логирование
-        logger = logging.getLogger("database")
-        logger.info(f"Ищем автомобиль. Исходный номер: '{car_number}', нормализованный: '{normalized_car_number}'")
-        
-        async with aiosqlite.connect(config.database_path) as db:
-            # Сначала проверим, какие номера есть в базе для отладки
-            async with db.execute('SELECT car_number FROM queue_data') as cursor:
-                all_cars = await cursor.fetchall()
-                if all_cars:
-                    logger.info(f"В базе найдено {len(all_cars)} автомобилей:")
-                    for car in all_cars[:10]:  # Выводим первые 10 для отладки
-                        logger.info(f"  - '{car[0]}'")
-                else:
-                    logger.warning("В базе нет данных об автомобилях")
-            
-            # Теперь выполняем основной запрос
-            async with db.execute(
-                '''SELECT model, queue_position, registration_date 
-                   FROM queue_data WHERE car_number = ?''',
-                (normalized_car_number,)
-            ) as cursor:
-                result = await cursor.fetchone()
-                
-                if not result:
-                    logger.warning(f"Автомобиль с номером '{normalized_car_number}' не найден в базе")
-                    
-                    # Попробуем поискать похожие номера для отладки
-                    async with db.execute(
-                        '''SELECT car_number FROM queue_data 
-                           WHERE car_number LIKE ?''',
-                        (f"%{normalized_car_number[-8:]}%",)
-                    ) as cursor2:
-                        similar = await cursor2.fetchall()
-                        if similar:
-                            logger.info(f"Найдены похожие номера в базе:")
-                            for car in similar:
-                                logger.info(f"  - '{car[0]}'")
-                    
-                    return None
-                
-                logger.info(f"Автомобиль с номером '{normalized_car_number}' найден в базе")
-                return {
-                    'car_number': car_number,
-                    'model': result[0],
-                    'queue_position': result[1],
-                    'registration_date': result[2]
-                }
-    except Exception as e:
-        logging.getLogger("database").error(f"Error getting car data: {e}")
-        print(f"Error getting car data: {e}")
-        return None
-
-
-def _normalize_car_number(car_number: str) -> str:
-    """Нормализация номера автомобиля для корректного сравнения."""
-    # Удаляем все пробелы и переводим в верхний регистр
-    normalized = car_number.strip().upper().replace(' ', '')
-    return normalized
-
-
-async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
-    """Получить список пользователей для отправки уведомлений."""
-    config = load_config()
-    
-    try:
-        async with aiosqlite.connect(config.database_path) as db:
-            query = """
-            SELECT 
-                u.user_id, 
-                u.car_number, 
-                ns.interval_mode, 
-                ns.interval_minutes, 
-                ns.position_change, 
-                ns.threshold_change, 
-                ns.threshold_value, 
-                ns.last_notification
-            FROM users u
-            JOIN notification_settings ns ON u.user_id = ns.user_id
-            WHERE ns.enabled = 1 AND u.car_number IS NOT NULL
-            """
-            
-            async with db.execute(query) as cursor:
-                users = []
-                async for row in cursor:
-                    user_id, car_number = row[0], row[1]
-                    
-                    # Логируем номер автомобиля для отладки
-                    logger = logging.getLogger("database")
-                    logger.info(f"Получен пользователь {user_id} с номером автомобиля '{car_number}'")
-                    
-                    settings = {
-                        'interval_mode': bool(row[2]),
-                        'interval_minutes': int(row[3]),
-                        'position_change': bool(row[4]),
-                        'threshold_change': bool(row[5]),
-                        'threshold_value': int(row[6]),
-                        'last_notification': row[7]
-                    }
-                    
-                    # Нормализуем номер перед возвратом
-                    normalized_car_number = _normalize_car_number(car_number)
-                    if car_number != normalized_car_number:
-                        logger.info(f"Нормализация номера для уведомлений: '{car_number}' -> '{normalized_car_number}'")
-                    
-                    users.append((user_id, normalized_car_number, settings))
-                
-                return users
-    except Exception as e:
-        logger = logging.getLogger("database")
-        logger.error(f"Error getting users for notification: {e}")
-        print(f"Error getting users for notification: {e}")
-        return []
-        
-
 async def update_last_notification(user_id: int) -> None:
     """Обновить время последнего уведомления."""
     config = load_config()
@@ -391,4 +203,42 @@ async def update_last_notification(user_id: int) -> None:
             )
             await db.commit()
     except Exception as e:
-        print(f"Error updating last notification: {e}") 
+        print(f"Error updating last notification: {e}")
+
+
+async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
+    """Получить список пользователей для отправки уведомлений."""
+    config = load_config()
+    result = []
+    
+    try:
+        async with aiosqlite.connect(config.database_path) as db:
+            query = """
+            SELECT 
+                u.user_id, u.car_number, 
+                ns.interval_mode, ns.interval_minutes, 
+                ns.position_change, ns.threshold_change, 
+                ns.threshold_value, ns.enabled, ns.last_notification
+            FROM users u
+            JOIN notification_settings ns ON u.user_id = ns.user_id
+            WHERE u.car_number IS NOT NULL AND ns.enabled = 1
+            """
+            
+            async with db.execute(query) as cursor:
+                async for row in cursor:
+                    user_id, car_number = row[0], row[1]
+                    settings = {
+                        'interval_mode': bool(row[2]),
+                        'interval_minutes': int(row[3]),
+                        'position_change': bool(row[4]),
+                        'threshold_change': bool(row[5]),
+                        'threshold_value': int(row[6]),
+                        'enabled': bool(row[7]),
+                        'last_notification': row[8]
+                    }
+                    result.append((user_id, car_number, settings))
+            
+            return result
+    except Exception as e:
+        print(f"Error getting users for notification: {e}")
+        return [] 

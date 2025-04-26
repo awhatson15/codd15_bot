@@ -242,7 +242,32 @@ async def interval_callback(callback_query: types.CallbackQuery, state: FSMConte
     """Обработчик выбора интервала уведомлений из кнопок."""
     await callback_query.answer()
     
-    interval = int(callback_query.data.split('_')[1])
+    # Проверяем, не является ли это нажатием кнопки "Назад"
+    callback_data = callback_query.data.split('_')[1]
+    if callback_data == 'back':
+        # Сбрасываем состояние
+        await state.finish()
+        
+        # Получаем текущие настройки
+        settings = await get_notification_settings(callback_query.from_user.id)
+        
+        # Возвращаемся в основное меню настроек
+        await callback_query.message.edit_text(
+            f"⚙️ *Настройки уведомлений*\n\n"
+            f"Текущие настройки:\n"
+            f"- Интервальный режим: {'✅' if settings['interval_mode'] else '❌'}\n"
+            f"- Интервал: {settings['interval_minutes']} мин.\n"
+            f"- При изменении позиции: {'✅' if settings['position_change'] else '❌'}\n"
+            f"- При сдвиге очереди: {'✅' if settings['threshold_change'] else '❌'}\n"
+            f"- Порог сдвига: {settings['threshold_value']} позиций\n"
+            f"- Уведомления: {'✅ Включены' if settings['enabled'] else '❌ Выключены'}\n\n"
+            f"Выберите, что хотите изменить:",
+            parse_mode="Markdown",
+            reply_markup=get_notification_settings_keyboard(settings)
+        )
+        return
+    
+    interval = int(callback_data)
     
     # Получаем текущие настройки
     settings = await get_notification_settings(callback_query.from_user.id)
@@ -432,7 +457,32 @@ async def threshold_callback(callback_query: types.CallbackQuery, state: FSMCont
     """Обработчик выбора порога сдвига очереди из кнопок."""
     await callback_query.answer()
     
-    threshold = int(callback_query.data.split('_')[1])
+    # Проверяем, не является ли это нажатием кнопки "Назад"
+    callback_data = callback_query.data.split('_')[1]
+    if callback_data == 'back':
+        # Сбрасываем состояние
+        await state.finish()
+        
+        # Получаем текущие настройки
+        settings = await get_notification_settings(callback_query.from_user.id)
+        
+        # Возвращаемся в основное меню настроек
+        await callback_query.message.edit_text(
+            f"⚙️ *Настройки уведомлений*\n\n"
+            f"Текущие настройки:\n"
+            f"- Интервальный режим: {'✅' if settings['interval_mode'] else '❌'}\n"
+            f"- Интервал: {settings['interval_minutes']} мин.\n"
+            f"- При изменении позиции: {'✅' if settings['position_change'] else '❌'}\n"
+            f"- При сдвиге очереди: {'✅' if settings['threshold_change'] else '❌'}\n"
+            f"- Порог сдвига: {settings['threshold_value']} позиций\n"
+            f"- Уведомления: {'✅ Включены' if settings['enabled'] else '❌ Выключены'}\n\n"
+            f"Выберите, что хотите изменить:",
+            parse_mode="Markdown",
+            reply_markup=get_notification_settings_keyboard(settings)
+        )
+        return
+    
+    threshold = int(callback_data)
     
     # Получаем текущие настройки
     settings = await get_notification_settings(callback_query.from_user.id)

@@ -10,19 +10,4 @@ services:
       - ./database:/app/database
     env_file:
       - .env
-    depends_on:
-      - parser
     command: python -m bot
-
-  parser:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: codd_queue_parser
-    restart: always
-    volumes:
-      - ./bot:/app/bot
-      - ./database:/app/database
-    env_file:
-      - .env
-    command: python -m bot.services.parser
