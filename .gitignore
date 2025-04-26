@@ -1,2 +1,12 @@
 .env
 ./database/queue_data.db
+__pycache__/
+*/__pycache__/
+*/**/__pycache__/
+*.py[cod]
+
+# Базы данных
+*.db
+*.sqlite
+*.sqlite3
+database/*.db
