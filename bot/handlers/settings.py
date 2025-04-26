@@ -5,7 +5,8 @@ import logging
 
 from bot.models.database import (
     get_notification_settings, 
-    setup_notifications
+    setup_notifications,
+    get_car_number
 )
 from bot.keyboards.keyboards import (
     get_main_menu, 
@@ -15,6 +16,7 @@ from bot.keyboards.keyboards import (
 )
 from bot.config.config import load_config
 from bot.utils.message_utils import safe_edit_message
+from bot.services.parser import CoddParser
 
 
 class NotificationState(StatesGroup):
@@ -527,11 +529,42 @@ async def back_to_main_callback(callback_query: types.CallbackQuery):
     """Обработчик кнопки "Назад в меню"."""
     await callback_query.answer()
     
-    await safe_edit_message(
-        callback_query.message,
-        "🚗 Выберите действие:",
-        reply_markup=get_main_menu()
-    )
+    # Получаем номер автомобиля пользователя
+    car_number = await get_car_number(callback_query.from_user.id)
+    
+    if car_number:
+        # Если автомобиль указан, получаем о нем информацию
+        parser = CoddParser()
+        car_data = await parser.parse_car_data(car_number)
+        
+        if car_data:
+            await safe_edit_message(
+                callback_query.message,
+                f"🚗 *Информация о вашем автомобиле в очереди*\n\n"
+                f"Автомобиль номер: `{car_data['car_number']}`\n"
+                f"Модель: {car_data['model']}\n"
+                f"Ваш номер в очереди: *{car_data['queue_position']}*\n"
+                f"Дата регистрации: {car_data['registration_date']}\n\n"
+                f"Выберите действие:",
+                parse_mode="Markdown",
+                reply_markup=get_main_menu()
+            )
+        else:
+            await safe_edit_message(
+                callback_query.message,
+                f"❓ Информация о вашем автомобиле с номером `{car_number}` не найдена в очереди.\n"
+                f"Возможно, номер указан неверно или сервис временно недоступен.\n\n"
+                f"Выберите действие:",
+                parse_mode="Markdown",
+                reply_markup=get_main_menu()
+            )
+    else:
+        # Если автомобиль не указан, просто показываем меню
+        await safe_edit_message(
+            callback_query.message,
+            "🚗 Выберите действие:",
+            reply_markup=get_main_menu()
+        )
 
 
 async def interval_back_callback(callback_query: types.CallbackQuery, state: FSMContext):
