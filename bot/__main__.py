@@ -4,18 +4,31 @@ import sys
 from collections import OrderedDict
 
 from aiogram import Bot, Dispatcher
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.types import BotCommand
-from aiogram.dispatcher.middlewares import BaseMiddleware
-from aiogram.dispatcher.handler import CancelHandler
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.utils.token import TokenValidationError
 
 from bot.config.config import load_config
-from bot.handlers import register_all_handlers
+from bot.handlers import get_all_routers
+from bot.middlewares.deduplication import DeduplicationMiddleware
 from bot.models.database import init_db
 from bot.services.notifications import start_notification_service
+from bot.utils.health_check import start_health_server
 
-# Флаг для предотвращения повторной инициализации
-_is_initialized = False
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("logs/bot.log"),
+        logging.StreamHandler()
+    ]
+)
+
+# Создание логгера для парсера с детальным логированием
+parser_logger = logging.getLogger("parser")
+parser_logger.setLevel(logging.DEBUG)
 
 # Кеш для хранения последних обработанных message_id
 # Используем OrderedDict чтобы автоматически удалять старые записи
@@ -23,112 +36,65 @@ _processed_messages = OrderedDict()
 _processed_updates = OrderedDict()
 _MAX_CACHE_SIZE = 100
 
+
 async def main():
-    global _is_initialized
-    
-    # Если бот уже инициализирован, выходим
-    if _is_initialized:
-        return
-    
-    # Настройка логирования
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    
-    # Создание логгера для парсера с детальным логированием
-    parser_logger = logging.getLogger("parser")
-    parser_logger.setLevel(logging.DEBUG)
-    
     # Загрузка конфигурации
     config = load_config()
     
     # Инициализация базы данных
     await init_db()
     
+    # Запуск health check сервера
+    await start_health_server()
+    
+    # Выбор хранилища состояний
+    if config.use_redis:
+        storage = RedisStorage.from_url(config.redis_url)
+        logging.info(f"Используется Redis для хранения состояний: {config.redis_url}")
+    else:
+        storage = MemoryStorage()
+        logging.info("Используется MemoryStorage для хранения состояний")
+    
     # Инициализация бота и диспетчера
-    bot = Bot(token=config.bot_token)
-    dp = Dispatcher(bot, storage=MemoryStorage())
-    
-    # Добавляем middleware для дедупликации сообщений
-    dp.middleware.setup(DeduplicationMiddleware())
-    
-    # Регистрация команд
-    await bot.set_my_commands([
-        BotCommand("start", "Запустить бота"),
-        BotCommand("help", "Справка"),
-        BotCommand("check", "Проверить очередь"),
-        BotCommand("settings", "Настройки уведомлений"),
-    ])
-    
-    # Регистрация всех обработчиков
-    register_all_handlers(dp)
-    
-    # Запуск сервиса уведомлений
-    await start_notification_service(bot)
-    
-    # Установка флага инициализации
-    _is_initialized = True
-    
-    # Запуск бота
     try:
-        await dp.start_polling()
+        bot = Bot(token=config.bot_token, parse_mode=ParseMode.HTML)
+        dp = Dispatcher(storage=storage)
+        
+        # Регистрация middleware
+        dp.update.middleware(DeduplicationMiddleware())
+        
+        # Регистрация всех роутеров
+        for router in get_all_routers():
+            dp.include_router(router)
+        
+        # Регистрация команд
+        await bot.set_my_commands([
+            {"command": "start", "description": "Запустить бота"},
+            {"command": "help", "description": "Справка"},
+            {"command": "check", "description": "Проверить очередь"},
+            {"command": "settings", "description": "Настройки уведомлений"},
+        ])
+        
+        # Запуск сервиса уведомлений
+        asyncio.create_task(start_notification_service(bot))
+        
+        # Запуск бота
+        logging.info("Бот запущен")
+        await dp.start_polling(bot)
+        
+    except TokenValidationError:
+        logging.critical("Неверный токен бота. Пожалуйста, проверьте настройки.")
+        sys.exit(1)
+    except Exception as e:
+        logging.critical(f"Критическая ошибка при запуске бота: {e}")
+        sys.exit(1)
     finally:
-        await bot.session.close()
-
-
-# Middleware для предотвращения дублирования сообщений
-class DeduplicationMiddleware(BaseMiddleware):
-    """
-    Middleware для предотвращения дублирования сообщений и обновлений.
-    Проверяет, было ли сообщение или обновление уже обработано по его ID.
-    """
-    
-    async def on_pre_process_update(self, update, data):
-        """Обработка всех типов обновлений"""
-        global _processed_updates
-        
-        update_id = update.update_id
-        
-        # Если обновление уже обрабатывалось, пропускаем его
-        if update_id in _processed_updates:
-            logging.debug(f"Дублирующееся обновление пропущено: {update_id}")
-            raise CancelHandler()
-        
-        # Добавляем обновление в кеш обработанных
-        _processed_updates[update_id] = True
-        
-        # Ограничиваем размер кеша
-        if len(_processed_updates) > _MAX_CACHE_SIZE:
-            # Удаляем самые старые записи
-            for _ in range(len(_processed_updates) - _MAX_CACHE_SIZE):
-                _processed_updates.popitem(last=False)
-    
-    async def on_pre_process_message(self, message, data):
-        """Дополнительная защита для сообщений"""
-        global _processed_messages
-        
-        # Проверяем, было ли сообщение уже обработано
-        message_id = message.message_id
-        chat_id = message.chat.id
-        
-        # Создаем уникальный ключ для сообщения (комбинация chat_id и message_id)
-        msg_key = f"{chat_id}:{message_id}"
-        
-        # Если сообщение уже обрабатывалось, пропускаем его
-        if msg_key in _processed_messages:
-            logging.debug(f"Дублирующееся сообщение пропущено: {msg_key}")
-            raise CancelHandler()
-        
-        # Добавляем сообщение в кеш обработанных
-        _processed_messages[msg_key] = True
-        
-        # Ограничиваем размер кеша
-        if len(_processed_messages) > _MAX_CACHE_SIZE:
-            # Удаляем самые старые записи
-            for _ in range(len(_processed_messages) - _MAX_CACHE_SIZE):
-                _processed_messages.popitem(last=False)
+        if 'bot' in locals():
+            await bot.session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Бот остановлен") 

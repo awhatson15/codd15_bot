@@ -1,21 +1,20 @@
-from aiogram import Dispatcher
+from aiogram import Router
 
-from bot.handlers.start import register_start_handlers
-from bot.handlers.command import register_command_handlers
-from bot.handlers.car import register_car_handlers
-from bot.handlers.settings import register_settings_handlers
-from bot.handlers.common import register_common_handlers
+from bot.handlers.start import get_start_router
+from bot.handlers.command import get_command_router
+from bot.handlers.car import get_car_router
+from bot.handlers.settings import get_settings_router
+from bot.handlers.common import get_common_router
 
 
-def register_all_handlers(dp: Dispatcher) -> None:
-    """Регистрация всех обработчиков сообщений."""
-    handlers = [
-        register_start_handlers,
-        register_command_handlers,
-        register_car_handlers,
-        register_settings_handlers,
-        register_common_handlers,
+def get_all_routers() -> list[Router]:
+    """Получение всех роутеров для регистрации в диспетчере."""
+    routers = [
+        get_start_router(),
+        get_command_router(),
+        get_car_router(),
+        get_settings_router(),
+        get_common_router(),
     ]
     
-    for handler in handlers:
-        handler(dp) 
+    return routers 

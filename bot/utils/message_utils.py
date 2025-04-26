@@ -1,14 +1,24 @@
 import logging
 from typing import Any, Dict, Optional, Union
 
-from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.types import Message
+from aiogram.exceptions import TelegramBadRequest
+
+
+def escape_markdown(text: str) -> str:
+    """
+    Экранирование специальных символов Markdown.
+    """
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 
 async def safe_edit_message(
     message: Message,
     text: str,
-    parse_mode: Optional[str] = None, 
-    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    reply_markup: Optional[Any] = None,
     **kwargs: Any
 ) -> Optional[Message]:
     """
@@ -17,7 +27,6 @@ async def safe_edit_message(
     Args:
         message: Сообщение для обновления
         text: Новый текст
-        parse_mode: Режим форматирования
         reply_markup: Инлайн-клавиатура
         **kwargs: Дополнительные параметры
         
@@ -27,13 +36,15 @@ async def safe_edit_message(
     try:
         return await message.edit_text(
             text=text,
-            parse_mode=parse_mode,
             reply_markup=reply_markup,
             **kwargs
         )
-    except Exception as e:
+    except TelegramBadRequest as e:
         # Игнорируем ошибку MessageNotModified
-        if "Message is not modified" not in str(e):
+        if "message is not modified" not in str(e).lower():
             # Логируем другие ошибки
             logging.error(f"Ошибка при обновлении сообщения: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Неожиданная ошибка при обновлении сообщения: {e}")
         return None 

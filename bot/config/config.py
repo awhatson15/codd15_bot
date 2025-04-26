@@ -1,15 +1,17 @@
 import os
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 
-@dataclass
-class Config:
+class Config(BaseModel):
+    """Конфигурация бота"""
     bot_token: str
-    codd_url: str
-    database_path: str
-    parser_interval: int
-    default_notification_interval: int
+    codd_url: str = "https://codd15.ru/ticket.html"
+    database_path: str = "./database/queue_data.db"
+    parser_interval: int = 60
+    default_notification_interval: int = 2
+    use_redis: bool = False
+    redis_url: str = "redis://localhost:6379/0"
 
 
 def load_config() -> Config:
@@ -22,4 +24,6 @@ def load_config() -> Config:
         database_path=os.getenv("DATABASE_PATH", "./database/queue_data.db"),
         parser_interval=int(os.getenv("PARSER_INTERVAL", 60)),
         default_notification_interval=int(os.getenv("DEFAULT_NOTIFICATION_INTERVAL", 2)),
+        use_redis=os.getenv("USE_REDIS", "false").lower() == "true",
+        redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
     ) 
