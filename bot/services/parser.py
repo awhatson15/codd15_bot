@@ -59,10 +59,11 @@ class CoddParser:
                 self.logger.error("Не удалось получить HTML страницы")
                 return None
             
-            # Сохраним HTML для анализа
-            with open("debug_page.html", "w", encoding="utf-8") as f:
-                f.write(html)
-            self.logger.info("HTML страницы сохранен в debug_page.html")
+            # Сохраним HTML для анализа только в режиме отладки
+            if self.config.debug_mode:
+                with open("debug_page.html", "w", encoding="utf-8") as f:
+                    f.write(html)
+                self.logger.info("HTML страницы сохранен в debug_page.html")
             
             # Разбор HTML
             soup = BeautifulSoup(html, 'lxml')
@@ -111,9 +112,10 @@ class CoddParser:
                                 data = json.loads(matches.group(1))
                                 self.logger.info(f"Найден массив данных в JavaScript, элементов: {len(data)}")
                                 
-                                # Сохраняем данные для отладки
-                                with open("debug_js_data.json", "w", encoding="utf-8") as f:
-                                    json.dump(data, f, ensure_ascii=False, indent=2)
+                                # Сохраняем данные для отладки только в режиме отладки
+                                if self.config.debug_mode:
+                                    with open("debug_js_data.json", "w", encoding="utf-8") as f:
+                                        json.dump(data, f, ensure_ascii=False, indent=2)
                                 
                                 # Перебираем элементы массива и ищем нужный номер
                                 for item in data:
@@ -171,12 +173,13 @@ class CoddParser:
                 rows = table.find_all('tr')
                 self.logger.info(f"Таблица {table_idx+1} содержит {len(rows)} строк")
                 
-                # Сохраним содержимое таблицы для отладки
-                with open(f"debug_table_{table_idx+1}.txt", "w", encoding="utf-8") as f:
-                    for row_idx, row in enumerate(rows):
-                        cells = row.find_all(['td', 'th'])
-                        cell_texts = [cell.text.strip() for cell in cells]
-                        f.write(f"Строка {row_idx+1}: {' | '.join(cell_texts)}\n")
+                # Сохраним содержимое таблицы для отладки только в режиме отладки
+                if self.config.debug_mode:
+                    with open(f"debug_table_{table_idx+1}.txt", "w", encoding="utf-8") as f:
+                        for row_idx, row in enumerate(rows):
+                            cells = row.find_all(['td', 'th'])
+                            cell_texts = [cell.text.strip() for cell in cells]
+                            f.write(f"Строка {row_idx+1}: {' | '.join(cell_texts)}\n")
                 
                 # Анализируем каждую строку таблицы
                 for row_idx, row in enumerate(rows):

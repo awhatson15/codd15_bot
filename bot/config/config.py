@@ -12,6 +12,7 @@ class Config(BaseModel):
     default_notification_interval: int = 2
     use_redis: bool = False
     redis_url: str = "redis://localhost:6379/0"
+    debug_mode: bool = False
 
 
 def load_config() -> Config:
@@ -26,4 +27,5 @@ def load_config() -> Config:
         default_notification_interval=int(os.getenv("DEFAULT_NOTIFICATION_INTERVAL", 2)),
         use_redis=os.getenv("USE_REDIS", "false").lower() == "true",
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true",
     ) 
