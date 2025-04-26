@@ -30,15 +30,28 @@ class NotificationService:
         """Запуск сервиса уведомлений."""
         self.logger.info("Запуск сервиса уведомлений")
         
-        # Планируем выполнение проверки уведомлений каждые 30 секунд
+        # Используем интервал из конфигурации
+        check_interval = self.config.notification_check_interval
+        self.logger.info(f"Интервал проверки уведомлений: {check_interval} секунд")
+        
+        # Планируем выполнение проверки уведомлений с настраиваемым интервалом
         self.scheduler.add_job(
             self.check_notifications,
             'interval',
-            seconds=30,
+            seconds=check_interval,
             id='check_notifications'
         )
         
         self.scheduler.start()
+    
+    async def close(self):
+        """Останавливает планировщик и освобождает ресурсы."""
+        self.logger.info("Остановка сервиса уведомлений")
+        self.scheduler.shutdown(wait=False)
+        self.logger.info("Сервис уведомлений остановлен")
+        
+        if hasattr(self.parser, 'close'):
+            await self.parser.close()
     
     async def check_notifications(self):
         """Проверка и отправка уведомлений пользователям."""
@@ -185,4 +198,5 @@ class NotificationService:
 async def start_notification_service(bot: Bot):
     """Запуск сервиса уведомлений."""
     notification_service = NotificationService(bot)
-    await notification_service.start() 
+    await notification_service.start()
+    return notification_service 

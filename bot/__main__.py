@@ -95,7 +95,7 @@ async def main():
         ])
         
         # Запуск сервиса уведомлений
-        asyncio.create_task(start_notification_service(bot))
+        notification_service = await start_notification_service(bot)
         
         # Запуск бота
         logging.info("Бот запущен")
@@ -110,6 +110,8 @@ async def main():
     finally:
         if 'bot' in locals():
             await bot.session.close()
+        if 'notification_service' in locals():
+            await notification_service.close()
 
 
 if __name__ == "__main__":

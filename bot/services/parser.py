@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 from typing import Dict, Optional, List
 from logging.handlers import RotatingFileHandler
+from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
 import requests
@@ -68,6 +69,8 @@ class CoddParser:
         self.config = load_config()
         self.base_url = self.config.codd_url
         self.logger = parser_logger
+        # Создаем пул потоков для выполнения синхронных операций
+        self.thread_pool = ThreadPoolExecutor(max_workers=5)  # Максимум 5 потоков
     
     async def parse_car_data(self, car_number: str) -> Optional[Dict]:
         """Парсинг данных об автомобиле по его номеру."""
@@ -101,9 +104,9 @@ class CoddParser:
     async def _get_car_data_from_page(self, normalized_car_number: str) -> Optional[Dict]:
         """Получение данных об автомобиле напрямую со страницы."""
         try:
-            # Используем синхронный requests для получения полной страницы с JS-данными
-            loop = asyncio.get_event_loop()
-            html = await loop.run_in_executor(None, self._get_full_page)
+            # Используем ThreadPoolExecutor для получения полной страницы с JS-данными
+            future = self.thread_pool.submit(self._get_full_page)
+            html = await asyncio.wrap_future(future)
             
             if not html:
                 self.logger.error("Не удалось получить HTML страницы")
@@ -351,9 +354,9 @@ class CoddParser:
     async def _get_all_cars_from_page(self) -> Dict[str, Dict]:
         """Получение всех автомобилей напрямую со страницы."""
         try:
-            # Используем синхронный requests для получения полной страницы с JS-данными
-            loop = asyncio.get_event_loop()
-            html = await loop.run_in_executor(None, self._get_full_page)
+            # Используем ThreadPoolExecutor для получения полной страницы с JS-данными
+            future = self.thread_pool.submit(self._get_full_page)
+            html = await asyncio.wrap_future(future)
             
             if not html:
                 return {}
@@ -527,37 +530,35 @@ class CoddParser:
             self.logger.error(f"Ошибка при получении позиции первого автомобиля: {e}")
             return None
 
+    async def close(self):
+        """Закрывает пул потоков и освобождает ресурсы."""
+        self.logger.info("Закрытие пула потоков")
+        self.thread_pool.shutdown(wait=True)
+        self.logger.info("Пул потоков закрыт")
+
 
 async def start_parser():
-    """Функция для запуска парсера в отдельном процессе."""
-    # Используем готовый логгер с ротацией, который уже настроен
-    logger = parser_logger
-    logger.info("Запуск парсера")
-    
-    # Загружаем конфигурацию
-    config = load_config()
-    
-    parser = CoddParser()
-    
-    # Запускаем бесконечный цикл обновления данных
-    while True:
+    """Запуск парсера как отдельного процесса."""
+    try:
+        parser = CoddParser()
+        config = load_config()
+        
+        parser_logger.info(f"Запуск парсера с интервалом {config.parser_interval} секунд")
+        
         try:
-            logger.info("Обновление данных об автомобилях")
-            
-            # Получаем текущие данные о всех автомобилях в очереди
-            car_data = await parser.parse_all_cars()
-            
-            if car_data:
-                logger.info(f"Получены данные о {len(car_data)} автомобилях")
-            else:
-                logger.warning("Не удалось получить данные о автомобилях")
-            
-            # Ждем заданный интервал перед следующим обновлением
-            await asyncio.sleep(config.parser_interval)
-            
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении данных: {e}")
-            await asyncio.sleep(10)  # При ошибке ждем немного меньше
+            while True:
+                parser_logger.info("Запуск цикла парсинга")
+                await parser.parse_all_cars()
+                parser_logger.info(f"Ожидание {config.parser_interval} секунд до следующего запуска")
+                await asyncio.sleep(config.parser_interval)
+        except asyncio.CancelledError:
+            parser_logger.info("Парсер остановлен")
+        finally:
+            # Закрываем ресурсы
+            await parser.close()
+    except Exception as e:
+        parser_logger.error(f"Критическая ошибка в парсере: {e}")
+        parser_logger.exception("Стек ошибки:")
 
 
 if __name__ == "__main__":

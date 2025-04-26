@@ -10,6 +10,7 @@ class Config(BaseModel):
     database_path: str = "./database/queue_data.db"
     parser_interval: int = 60
     default_notification_interval: int = 2
+    notification_check_interval: int = 30  # Интервал проверки уведомлений в секундах
     use_redis: bool = False
     redis_url: str = "redis://localhost:6379/0"
     debug_mode: bool = False
@@ -30,6 +31,7 @@ def load_config() -> Config:
         database_path=os.getenv("DATABASE_PATH", "./database/queue_data.db"),
         parser_interval=int(os.getenv("PARSER_INTERVAL", 60)),
         default_notification_interval=int(os.getenv("DEFAULT_NOTIFICATION_INTERVAL", 2)),
+        notification_check_interval=int(os.getenv("NOTIFICATION_CHECK_INTERVAL", 30)),
         use_redis=os.getenv("USE_REDIS", "false").lower() == "true",
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true",
