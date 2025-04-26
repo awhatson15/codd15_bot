@@ -158,6 +158,29 @@ class NotificationService:
                         f"Дата регистрации: {car_data['registration_date']}"
                     )
         
+        # 4. При достижении порогового значения очереди
+        if settings.get('queue_threshold'):
+            queue_threshold_value = settings.get('queue_threshold_value', 10)
+            current_position = car_data['queue_position']
+            
+            if current_position <= queue_threshold_value:
+                # Проверяем, не отправляли ли уже уведомление для этого порога
+                key = f"{car_number}_queue_threshold_{queue_threshold_value}"
+                if not hasattr(self, 'sent_threshold_notifications'):
+                    self.sent_threshold_notifications = {}
+                
+                if not self.sent_threshold_notifications.get(key, False):
+                    send_notification = True
+                    notification_text = (
+                        f"🏁 *Достигнут порог очереди!*\n\n"
+                        f"Автомобиль номер: `{car_data['car_number']}`\n"
+                        f"Ваш текущий номер: *{current_position}*\n"
+                        f"Достигнут указанный порог: {queue_threshold_value}\n"
+                        f"Дата регистрации: {car_data['registration_date']}"
+                    )
+                    # Отмечаем, что уведомление для этого порога отправлено
+                    self.sent_threshold_notifications[key] = True
+        
         # Отправляем уведомление, если есть причина
         if send_notification:
             try:

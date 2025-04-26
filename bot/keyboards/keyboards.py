@@ -36,6 +36,10 @@ def get_notification_settings_keyboard(settings: dict) -> InlineKeyboardBuilder:
     threshold_text = f"{'✅' if settings.get('threshold_change', False) else '❌'} При сдвиге очереди ({settings.get('threshold_value', 10)} позиций)"
     builder.add(InlineKeyboardButton(text=threshold_text, callback_data="toggle_threshold"))
     
+    # При достижении порога очереди
+    queue_threshold_text = f"{'✅' if settings.get('queue_threshold', False) else '❌'} При достижении номера ({settings.get('queue_threshold_value', 10)})"
+    builder.add(InlineKeyboardButton(text=queue_threshold_text, callback_data="toggle_queue_threshold"))
+    
     # Общее включение/отключение уведомлений
     enabled_text = f"{'🔔 Уведомления включены' if settings.get('enabled', True) else '🔕 Уведомления выключены'}"
     builder.add(InlineKeyboardButton(text=enabled_text, callback_data="toggle_notifications"))
@@ -78,6 +82,24 @@ def get_notification_threshold_keyboard() -> InlineKeyboardBuilder:
     
     # Добавляем кнопку "Назад"
     builder.add(InlineKeyboardButton(text="◀️ Назад", callback_data="threshold_back"))
+    
+    # Устанавливаем по 3 кнопки в ряд
+    builder.adjust(3, 3, 1)
+    return builder.as_markup()
+
+
+def get_queue_threshold_keyboard() -> InlineKeyboardBuilder:
+    """Клавиатура для выбора порогового значения очереди."""
+    builder = InlineKeyboardBuilder()
+    
+    # Варианты порогов номера очереди
+    thresholds = [3, 5, 10, 15, 20, 30]
+    buttons = [InlineKeyboardButton(text=f"Номер {threshold}", callback_data=f"queue_threshold_{threshold}") for threshold in thresholds]
+    
+    builder.add(*buttons)
+    
+    # Добавляем кнопку "Назад"
+    builder.add(InlineKeyboardButton(text="◀️ Назад", callback_data="queue_threshold_back"))
     
     # Устанавливаем по 3 кнопки в ряд
     builder.adjust(3, 3, 1)

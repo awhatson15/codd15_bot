@@ -100,6 +100,8 @@ async def init_db():
             position_change BOOLEAN DEFAULT FALSE,
             threshold_change BOOLEAN DEFAULT FALSE,
             threshold_value INTEGER DEFAULT 10,
+            queue_threshold BOOLEAN DEFAULT FALSE,
+            queue_threshold_value INTEGER DEFAULT 10,
             enabled BOOLEAN DEFAULT TRUE,
             last_notification TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
@@ -228,6 +230,8 @@ async def setup_notifications(user_id: int, settings: Dict) -> bool:
                 position_change = ?,
                 threshold_change = ?,
                 threshold_value = ?,
+                queue_threshold = ?,
+                queue_threshold_value = ?,
                 enabled = ?
             WHERE user_id = ?
             """
@@ -237,6 +241,8 @@ async def setup_notifications(user_id: int, settings: Dict) -> bool:
                 settings.get('position_change', False),
                 settings.get('threshold_change', False),
                 settings.get('threshold_value', 10),
+                settings.get('queue_threshold', False),
+                settings.get('queue_threshold_value', 10),
                 settings.get('enabled', True),
                 user_id
             )
@@ -245,8 +251,9 @@ async def setup_notifications(user_id: int, settings: Dict) -> bool:
             query = """
             INSERT INTO notification_settings (
                 user_id, interval_mode, interval_minutes, 
-                position_change, threshold_change, threshold_value, enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                position_change, threshold_change, threshold_value, 
+                queue_threshold, queue_threshold_value, enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             params = (
                 user_id,
@@ -255,6 +262,8 @@ async def setup_notifications(user_id: int, settings: Dict) -> bool:
                 settings.get('position_change', False),
                 settings.get('threshold_change', False),
                 settings.get('threshold_value', 10),
+                settings.get('queue_threshold', False),
+                settings.get('queue_threshold_value', 10),
                 settings.get('enabled', True)
             )
             
