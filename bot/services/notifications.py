@@ -9,8 +9,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bot.config.config import load_config
 from bot.models.database import (
     get_car_data, get_users_for_notification, 
-    update_last_notification, get_notification_settings
+    update_last_notification, get_notification_settings,
+    update_queue_data
 )
+from bot.services.parser import CoddParser
 
 
 class NotificationService:
@@ -54,9 +56,25 @@ class NotificationService:
         """Обработка уведомлений для конкретного пользователя."""
         # Получаем данные об автомобиле
         car_data = await get_car_data(car_number)
+        
+        # Если нет данных в базе, попробуем получить напрямую с сайта
         if not car_data:
-            self.logger.warning(f"Нет данных об автомобиле {car_number} для пользователя {user_id}")
-            return
+            self.logger.warning(f"Нет данных об автомобиле {car_number} для пользователя {user_id}. Пробуем парсинг напрямую.")
+            parser = CoddParser()
+            parsed_car_data = await parser.parse_car_data(car_number)
+            
+            if parsed_car_data:
+                self.logger.info(f"Получены данные с сайта для автомобиля {car_number}")
+                # Сохраняем данные в базу для будущих запросов
+                await update_queue_data({car_number: {
+                    'model': parsed_car_data['model'],
+                    'queue_position': parsed_car_data['queue_position'],
+                    'registration_date': parsed_car_data['registration_date']
+                }})
+                car_data = parsed_car_data
+            else:
+                self.logger.warning(f"Автомобиль {car_number} не найден ни в базе, ни на сайте для пользователя {user_id}")
+                return
         
         # Получаем время последнего уведомления
         last_notification = settings.get('last_notification')

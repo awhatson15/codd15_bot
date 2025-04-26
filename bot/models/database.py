@@ -3,6 +3,7 @@ import aiosqlite
 import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple, Union
+import logging
 
 from bot.config.config import load_config
 
@@ -264,7 +265,22 @@ async def get_car_data(car_number: str) -> Optional[Dict]:
         # Нормализуем номер автомобиля для поиска
         normalized_car_number = _normalize_car_number(car_number)
         
+        # Добавляем логирование
+        logger = logging.getLogger("database")
+        logger.info(f"Ищем автомобиль. Исходный номер: '{car_number}', нормализованный: '{normalized_car_number}'")
+        
         async with aiosqlite.connect(config.database_path) as db:
+            # Сначала проверим, какие номера есть в базе для отладки
+            async with db.execute('SELECT car_number FROM queue_data') as cursor:
+                all_cars = await cursor.fetchall()
+                if all_cars:
+                    logger.info(f"В базе найдено {len(all_cars)} автомобилей:")
+                    for car in all_cars[:10]:  # Выводим первые 10 для отладки
+                        logger.info(f"  - '{car[0]}'")
+                else:
+                    logger.warning("В базе нет данных об автомобилях")
+            
+            # Теперь выполняем основной запрос
             async with db.execute(
                 '''SELECT model, queue_position, registration_date 
                    FROM queue_data WHERE car_number = ?''',
@@ -273,8 +289,23 @@ async def get_car_data(car_number: str) -> Optional[Dict]:
                 result = await cursor.fetchone()
                 
                 if not result:
-                    return None
+                    logger.warning(f"Автомобиль с номером '{normalized_car_number}' не найден в базе")
                     
+                    # Попробуем поискать похожие номера для отладки
+                    async with db.execute(
+                        '''SELECT car_number FROM queue_data 
+                           WHERE car_number LIKE ?''',
+                        (f"%{normalized_car_number[-8:]}%",)
+                    ) as cursor2:
+                        similar = await cursor2.fetchall()
+                        if similar:
+                            logger.info(f"Найдены похожие номера в базе:")
+                            for car in similar:
+                                logger.info(f"  - '{car[0]}'")
+                    
+                    return None
+                
+                logger.info(f"Автомобиль с номером '{normalized_car_number}' найден в базе")
                 return {
                     'car_number': car_number,
                     'model': result[0],
@@ -282,6 +313,7 @@ async def get_car_data(car_number: str) -> Optional[Dict]:
                     'registration_date': result[2]
                 }
     except Exception as e:
+        logging.getLogger("database").error(f"Error getting car data: {e}")
         print(f"Error getting car data: {e}")
         return None
 
@@ -318,6 +350,11 @@ async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
                 users = []
                 async for row in cursor:
                     user_id, car_number = row[0], row[1]
+                    
+                    # Логируем номер автомобиля для отладки
+                    logger = logging.getLogger("database")
+                    logger.info(f"Получен пользователь {user_id} с номером автомобиля '{car_number}'")
+                    
                     settings = {
                         'interval_mode': bool(row[2]),
                         'interval_minutes': int(row[3]),
@@ -326,9 +363,18 @@ async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
                         'threshold_value': int(row[6]),
                         'last_notification': row[7]
                     }
-                    users.append((user_id, car_number, settings))
+                    
+                    # Нормализуем номер перед возвратом
+                    normalized_car_number = _normalize_car_number(car_number)
+                    if car_number != normalized_car_number:
+                        logger.info(f"Нормализация номера для уведомлений: '{car_number}' -> '{normalized_car_number}'")
+                    
+                    users.append((user_id, normalized_car_number, settings))
+                
                 return users
     except Exception as e:
+        logger = logging.getLogger("database")
+        logger.error(f"Error getting users for notification: {e}")
         print(f"Error getting users for notification: {e}")
         return []
         

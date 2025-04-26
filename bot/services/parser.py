@@ -443,6 +443,9 @@ async def start_parser():
     # Нормализуем существующие номера автомобилей в базе данных
     await normalize_existing_car_numbers(logger)
     
+    # Проверка содержимого базы данных после нормализации
+    await log_database_content(logger)
+    
     while True:
         try:
             # Парсинг данных о всех автомобилях
@@ -451,8 +454,15 @@ async def start_parser():
             if cars_data:
                 logger.info(f"Получены данные о {len(cars_data)} автомобилях")
                 
+                # Логируем несколько номеров до обновления
+                for i, (car_number, data) in enumerate(list(cars_data.items())[:5]):
+                    logger.info(f"Пример {i+1}: Номер '{car_number}', модель '{data['model']}', позиция {data['queue_position']}")
+                
                 # Обновление данных в БД
                 await update_queue_data(cars_data)
+                
+                # Проверяем базу после обновления
+                await log_database_content(logger)
             else:
                 logger.warning("Не удалось получить данные об автомобилях")
             
@@ -544,6 +554,56 @@ async def normalize_existing_car_numbers(logger):
     except Exception as e:
         logger.error(f"Ошибка при нормализации номеров автомобилей: {e}")
         logger.exception("Стек ошибки:")
+
+
+async def log_database_content(logger):
+    """Логирует содержимое базы данных для отладки."""
+    try:
+        config = load_config()
+        import aiosqlite
+        
+        async with aiosqlite.connect(config.database_path) as db:
+            # Проверяем содержимое таблицы queue_data
+            async with db.execute('SELECT car_number, model, queue_position FROM queue_data') as cursor:
+                records = await cursor.fetchall()
+                
+                if not records:
+                    logger.warning("База данных queue_data пуста!")
+                    return
+                
+                logger.info(f"В базе данных queue_data {len(records)} записей")
+                
+                # Выводим первые 10 записей
+                for i, (car_number, model, position) in enumerate(records[:10]):
+                    logger.info(f"Запись {i+1}: Номер '{car_number}', модель '{model}', позиция {position}")
+                
+                # Проверяем, есть ли интересующий нас номер
+                test_numbers = ["752LP61-607L01", "752LP61607L01", "752LP61 607L01"]
+                for test_number in test_numbers:
+                    async with db.execute(
+                        'SELECT car_number FROM queue_data WHERE car_number = ?', 
+                        (test_number,)
+                    ) as cursor:
+                        result = await cursor.fetchone()
+                        if result:
+                            logger.info(f"✅ Номер '{test_number}' найден в базе как '{result[0]}'")
+                        else:
+                            logger.info(f"❌ Номер '{test_number}' НЕ найден в базе")
+                
+                # Ищем похожие номера
+                for test_number in test_numbers:
+                    async with db.execute(
+                        'SELECT car_number FROM queue_data WHERE car_number LIKE ?', 
+                        (f"%{test_number[-6:]}%",)
+                    ) as cursor:
+                        similar = await cursor.fetchall()
+                        if similar:
+                            logger.info(f"Похожие на '{test_number}' номера:")
+                            for car in similar:
+                                logger.info(f"  - '{car[0]}'")
+                
+    except Exception as e:
+        logger.error(f"Ошибка при проверке базы данных: {e}")
 
 
 if __name__ == "__main__":
