@@ -13,6 +13,8 @@ services:
       - ./docker-entrypoint.sh:/docker-entrypoint.sh:ro
     env_file:
       - .env
+    environment:
+      - TZ=${TIMEZONE:-Europe/Moscow}
     user: root
     entrypoint: ["/bin/bash", "/docker-entrypoint.sh"]
     command: ["python", "-m", "bot"]

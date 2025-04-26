@@ -14,8 +14,9 @@ from aiogram.utils.token import TokenValidationError
 from bot.config.config import load_config
 from bot.handlers import get_all_routers
 from bot.middlewares.deduplication import DeduplicationMiddleware
-from bot.models.database import init_db
+from bot.models.database import init_db, close_all_connections
 from bot.services.notifications import start_notification_service
+from bot.services.analytics import start_analytics_service
 from bot.utils.health_check import start_health_server
 
 # Создаем директорию для логов, если она не существует
@@ -58,6 +59,10 @@ async def main():
     parser_logger = logging.getLogger("parser")
     parser_logger.setLevel(logging.DEBUG if config.debug_mode else log_level)
     
+    # Создаем логгер для аналитики
+    analytics_logger = logging.getLogger("analytics")
+    analytics_logger.setLevel(log_level)
+    
     logging.info("Логирование настроено (stdout/stderr)")
     
     # Инициализация базы данных
@@ -92,10 +97,27 @@ async def main():
             {"command": "help", "description": "Справка"},
             {"command": "check", "description": "Проверить очередь"},
             {"command": "settings", "description": "Настройки уведомлений"},
+            {"command": "stats", "description": "Статистика очереди"},
+            {"command": "forecast", "description": "Прогноз времени ожидания"},
         ])
         
         # Запуск сервиса уведомлений
         notification_service = await start_notification_service(bot)
+        
+        # Запуск службы аналитики
+        analytics_service = await start_analytics_service()
+        
+        # Планируем сбор снимков статистики каждый час
+        scheduler = notification_service.scheduler
+        scheduler.add_job(
+            analytics_service.record_snapshot,
+            'interval',
+            hours=1,
+            id='analytics_snapshot'
+        )
+        
+        # Делаем первый снимок сразу
+        asyncio.create_task(analytics_service.record_snapshot())
         
         # Запуск бота
         logging.info("Бот запущен")
@@ -112,6 +134,12 @@ async def main():
             await bot.session.close()
         if 'notification_service' in locals():
             await notification_service.close()
+        if 'analytics_service' in locals():
+            if hasattr(analytics_service, 'close'):
+                await analytics_service.close()
+        
+        # Закрываем все соединения с БД
+        await close_all_connections()
 
 
 if __name__ == "__main__":

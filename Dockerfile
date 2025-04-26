@@ -5,7 +5,12 @@ WORKDIR /app
 # Установка необходимых пакетов для работы
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# Настройка часового пояса (по умолчанию Moscow, но может быть переопределена через переменную окружения)
+ENV TZ=Europe/Moscow
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Установка зависимостей до копирования кода для лучшего кеширования слоев
 COPY requirements.txt .
