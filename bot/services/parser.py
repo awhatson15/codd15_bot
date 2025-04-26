@@ -17,42 +17,46 @@ from bot.config.config import load_config
 
 # Настройка отдельного логгера для парсера
 def setup_parser_logger():
-    # Создаем директорию для логов, если она не существует
-    os.makedirs("logs", exist_ok=True)
-    
-    # Загружаем конфигурацию
-    config = load_config()
-    
-    # Получаем логгер
-    parser_logger = logging.getLogger("parser")
-    
-    # Проверяем, не настроен ли он уже (чтобы избежать дублирования)
-    if not parser_logger.handlers:
-        # Определяем уровень логирования
-        log_level = getattr(logging, config.log_level, logging.INFO)
-        if config.debug_mode:
-            log_level = logging.DEBUG
+    try:
+        # Загружаем конфигурацию
+        config = load_config()
+        
+        # Получаем логгер
+        parser_logger = logging.getLogger("parser")
+        
+        # Проверяем, не настроен ли он уже (чтобы избежать дублирования)
+        if not parser_logger.handlers:
+            # Определяем уровень логирования
+            log_level = getattr(logging, config.log_level, logging.INFO)
+            if config.debug_mode:
+                log_level = logging.DEBUG
+                
+            parser_logger.setLevel(log_level)
             
-        parser_logger.setLevel(log_level)
+            # Используем только консольный вывод для надежности
+            console_handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            console_handler.setFormatter(formatter)
+            parser_logger.addHandler(console_handler)
+            
+        return parser_logger
+    except Exception as e:
+        # Если что-то пошло не так, создаем базовый логгер без файлового вывода
+        print(f"ERROR: Failed to setup logger: {e}. Using basic configuration.")
+        basic_logger = logging.getLogger("parser")
+        basic_logger.setLevel(logging.INFO)
         
-        # Создаем обработчик файла с ротацией
-        file_handler = RotatingFileHandler(
-            filename="logs/parser.log",
-            maxBytes=config.log_max_size,
-            backupCount=config.log_backup_count,
-            encoding="utf-8"
-        )
+        if not basic_logger.handlers:
+            console_handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            console_handler.setFormatter(formatter)
+            basic_logger.addHandler(console_handler)
         
-        # Форматирование сообщений логгера
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        file_handler.setFormatter(formatter)
-        
-        # Добавляем обработчик к логгеру
-        parser_logger.addHandler(file_handler)
-    
-    return parser_logger
+        return basic_logger
 
 
 # Инициализируем логгер парсера
@@ -295,7 +299,21 @@ class CoddParser:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
             }
-            response = requests.get(self.base_url, headers=headers)
+            
+            # Проверка на HTTPS и включение проверки сертификатов
+            verify_ssl = True
+            if self.base_url.startswith('https://'):
+                self.logger.debug("Используется HTTPS-соединение с проверкой сертификатов")
+            else:
+                self.logger.debug("Используется HTTP-соединение")
+            
+            # Выполняем запрос с проверкой сертификата для HTTPS
+            response = requests.get(
+                self.base_url,
+                headers=headers,
+                verify=verify_ssl,  # Обязательная проверка сертификатов
+                timeout=30  # Устанавливаем таймаут для предотвращения зависания
+            )
             
             if response.status_code == 200:
                 self.logger.info(f"Успешно получена страница, размер HTML: {len(response.text)} байт")
@@ -303,6 +321,12 @@ class CoddParser:
             else:
                 self.logger.error(f"Ошибка при получении страницы, код: {response.status_code}")
                 return ""
+        except requests.exceptions.SSLError as e:
+            self.logger.error(f"Ошибка SSL при получении страницы: {e}")
+            return ""
+        except requests.exceptions.Timeout as e:
+            self.logger.error(f"Таймаут при получении страницы: {e}")
+            return ""
         except Exception as e:
             self.logger.error(f"Ошибка при получении полной страницы: {e}")
             return ""

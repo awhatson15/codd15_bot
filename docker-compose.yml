@@ -8,12 +8,19 @@ services:
     depends_on:
       - redis
     volumes:
-      - ./bot:/app/bot
-      - ./database:/app/database
-      - ./logs:/app/logs
+      - ./bot:/app/bot:ro
+      - db_data:/app/database
+      - ./docker-entrypoint.sh:/docker-entrypoint.sh:ro
     env_file:
       - .env
-    command: python -m bot
+    user: root
+    entrypoint: ["/bin/bash", "/docker-entrypoint.sh"]
+    command: ["python", "-m", "bot"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
       interval: 30s
@@ -32,3 +39,4 @@ services:
 
 volumes:
   redis_data:
+  db_data:

@@ -43,19 +43,7 @@ async def main():
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    # Добавляем обработчик для файла с ротацией
-    file_handler = RotatingFileHandler(
-        filename="logs/bot.log",
-        maxBytes=config.log_max_size,
-        backupCount=config.log_backup_count,
-        encoding="utf-8"
-    )
-    file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    ))
-    root_logger.addHandler(file_handler)
-    
-    # Добавляем обработчик для вывода в консоль
+    # Добавляем обработчик для вывода в консоль (всегда работает)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -69,6 +57,8 @@ async def main():
     # Создаем логгер для парсера с детальным логированием
     parser_logger = logging.getLogger("parser")
     parser_logger.setLevel(logging.DEBUG if config.debug_mode else log_level)
+    
+    logging.info("Логирование настроено (stdout/stderr)")
     
     # Инициализация базы данных
     await init_db()
