@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -10,8 +11,16 @@ from bot.handlers import register_all_handlers
 from bot.models.database import init_db
 from bot.services.notifications import start_notification_service
 
+# Флаг для предотвращения повторной инициализации
+_is_initialized = False
 
 async def main():
+    global _is_initialized
+    
+    # Если бот уже инициализирован, выходим
+    if _is_initialized:
+        return
+    
     # Настройка логирования
     logging.basicConfig(
         level=logging.DEBUG,
@@ -45,6 +54,9 @@ async def main():
     
     # Запуск сервиса уведомлений
     await start_notification_service(bot)
+    
+    # Установка флага инициализации
+    _is_initialized = True
     
     # Запуск бота
     try:

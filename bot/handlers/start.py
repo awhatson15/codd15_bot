@@ -13,6 +13,10 @@ class CarNumberState(StatesGroup):
 
 async def cmd_start(message: types.Message, state: FSMContext):
     """Обработчик команды /start."""
+    # Проверка, что это действительно команда start, а не другой тип сообщения
+    if not message.text.startswith('/start'):
+        return
+
     # Сбрасываем предыдущее состояние
     await state.finish()
     
@@ -23,7 +27,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     current_car_number = await get_car_number(message.from_user.id)
     
     if current_car_number:
-        # Если номер уже есть, показываем информацию и спрашиваем, хочет ли пользователь изменить его
+        # Если номер уже есть, показываем информацию
         parser = CoddParser()
         car_data = await parser.parse_car_data(current_car_number)
         
@@ -108,5 +112,8 @@ async def process_car_number(message: types.Message, state: FSMContext):
 
 def register_start_handlers(dp: Dispatcher):
     """Регистрация обработчиков команды /start."""
+    # Регистрируем только для команды start и сбрасываем любое состояние
     dp.register_message_handler(cmd_start, commands=["start"], state="*")
+    
+    # Регистрируем обработчик ввода номера автомобиля только для конкретного состояния
     dp.register_message_handler(process_car_number, state=CarNumberState.waiting_for_car_number) 
