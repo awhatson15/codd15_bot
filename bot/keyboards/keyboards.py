@@ -10,6 +10,7 @@ def get_main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton("⚙️ Настроить уведомления", callback_data="settings"),
         InlineKeyboardButton("🔕 Отключить уведомления", callback_data="toggle_notifications"),
         InlineKeyboardButton("🚗 Изменить номер авто", callback_data="change_car"),
+        InlineKeyboardButton("🗑️ Удалить номер авто", callback_data="delete_car"),
         InlineKeyboardButton("❓ Справка", callback_data="help"),
     ]
     

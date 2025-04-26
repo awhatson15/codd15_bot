@@ -241,4 +241,21 @@ async def get_users_for_notification() -> List[Tuple[int, str, Dict]]:
             return result
     except Exception as e:
         print(f"Error getting users for notification: {e}")
-        return [] 
+        return []
+
+
+async def delete_car_number(user_id: int) -> bool:
+    """Удалить номер автомобиля пользователя (очистить поле)."""
+    config = load_config()
+    
+    try:
+        async with aiosqlite.connect(config.database_path) as db:
+            await db.execute(
+                'UPDATE users SET car_number = NULL WHERE user_id = ?',
+                (user_id,)
+            )
+            await db.commit()
+        return True
+    except Exception as e:
+        print(f"Error deleting car number: {e}")
+        return False 

@@ -3,7 +3,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 import logging
 
-from bot.models.database import update_car_number, get_car_number
+from bot.models.database import update_car_number, get_car_number, delete_car_number
 from bot.services.parser import CoddParser
 from bot.keyboards.keyboards import get_main_menu
 from bot.utils.message_utils import safe_edit_message
@@ -144,9 +144,44 @@ async def process_new_car_number(message: types.Message, state: FSMContext):
     await state.finish()
 
 
+async def delete_car_callback(callback_query: types.CallbackQuery):
+    """Обработчик инлайн-кнопки 'Удалить номер авто'."""
+    await callback_query.answer()
+    
+    # Получаем текущий номер автомобиля
+    car_number = await get_car_number(callback_query.from_user.id)
+    
+    if not car_number:
+        await safe_edit_message(
+            callback_query.message,
+            "❌ У вас не задан номер автомобиля.",
+            reply_markup=get_main_menu()
+        )
+        return
+    
+    # Удаляем номер автомобиля
+    success = await delete_car_number(callback_query.from_user.id)
+    
+    if success:
+        await safe_edit_message(
+            callback_query.message,
+            f"✅ Номер автомобиля `{car_number}` успешно удален из отслеживания.\n\n"
+            f"Для добавления нового автомобиля используйте кнопку 'Изменить номер авто'.",
+            parse_mode="Markdown",
+            reply_markup=get_main_menu()
+        )
+    else:
+        await safe_edit_message(
+            callback_query.message,
+            "❌ Произошла ошибка при удалении номера автомобиля.",
+            reply_markup=get_main_menu()
+        )
+
+
 def register_car_handlers(dp: Dispatcher):
     """Регистрация обработчиков для операций с автомобилем."""
     dp.register_message_handler(cmd_check_queue, commands=["check"])
     dp.register_callback_query_handler(check_queue_callback, lambda c: c.data == "check_queue")
     dp.register_callback_query_handler(change_car_callback, lambda c: c.data == "change_car")
+    dp.register_callback_query_handler(delete_car_callback, lambda c: c.data == "delete_car")
     dp.register_message_handler(process_new_car_number, state=ChangeCarState.waiting_for_new_car_number) 
