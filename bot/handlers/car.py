@@ -91,9 +91,8 @@ async def change_car_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     
     await callback.message.edit_text(
-        "🚗 Введите новый номер автомобиля с прицепом через дефис.\n"
-        "Формат: <code>[гос. номер автомобиля]-[гос. номер прицепа]</code>\n"
-        "Пример: <code>P131XM61-AP234015</code>"
+        "🚗 Введите новый номер автомобиля.\n"
+        "Примеры: <code>P131XM61</code> или <code>P131XM61-AP234015</code>"
     )
     
     await state.set_state(ChangeCarState.waiting_for_new_car_number)
@@ -104,11 +103,10 @@ async def process_new_car_number(message: Message, state: FSMContext):
     car_number = message.text.strip()
     
     # Валидация номера
-    if "-" not in car_number or len(car_number) < 5:
+    if len(car_number) < 3:
         await message.answer(
-            "❌ Неверный формат номера. Введите номер в формате:\n"
-            "<code>[гос. номер автомобиля]-[гос. номер прицепа]</code>\n"
-            "Пример: <code>P131XM61-AP234015</code>"
+            "❌ Неверный формат номера. Номер должен содержать минимум 3 символа.\n"
+            "Примеры: <code>P131XM61</code> или <code>P131XM61-AP234015</code>"
         )
         return
     
